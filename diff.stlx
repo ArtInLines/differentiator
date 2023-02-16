@@ -59,6 +59,8 @@ diff := procedure(expr, sym) {
 								@Expr("*", diff(a, sym), b),
 								@Expr("*", a, diff(b, sym))),
 							@Expr("*", b, b)));
+		case @Expr("diff", a, b):
+			return diff(diff(a, b), sym);
 		default: abort("Error at diff($expr$, $sym$)");
 	}
 };
@@ -67,16 +69,12 @@ eval := procedure(t) {
 	if (isString(t)) {
 		t := parse_expr(t);
 	}
-	// print("Evaluating $t$...");
+	print("Evaluating $t$...");
 	match(t) {
 		case @Number(n):
 			return t;
 		case @Symbol(s):
 			return t;
-		case @Expr("diff", expr, sym):
-			return diff(expr, sym);
-		// case @Expr("int", start, end, expr, sym):
-			// TODO
 		case @Expr("-", a):
 			match(a) {
 				case @Number(n):
@@ -98,29 +96,46 @@ eval := procedure(t) {
 			abort("Division by Zero.");
 		case @Expr("/", @Number(0), b):
 			return @Number(0);
-		case @Expr(op, a, b):
-			if (fct(a) == "Expr") {
-				a := eval(a);
+		case @Expr("diff", expr, sym):
+			return diff(expr, sym);
+		// case @Expr("int", start, end, expr, sym):
+			// TODO
+		case @Expr("sin", @Number(n)):
+			return @Number(sin(n));
+		case @Expr("cos", @Number(n)):
+			return @Number(cos(n));
+		case @Expr(f, @Symbol(n)) | f == "sin" || f == "cos":
+			return t;
+		case @Expr(f, expr) | (f == "sin" || f == "cos") && fct(expr) == "Expr":
+			expr := eval(expr);
+			if (fct(expr) == "Expr") {
+				return makeTerm(f, [expr]);
+			} else {
+				return eval(@Expr(f, expr));
 			}
-			if (fct(b) == "Expr") {
-				b := eval(b);
-			}
-			if (fct(a) == "Number" && fct(b) == "Number") {
-				a := args(a)[1];
-				b := args(b)[1];
+		case t | fct(t) == "Expr":
+			op := args(t)[1];
+			argz := args(t)[2..];
+			argz := [ eval(a) : a in argz ];
+
+			if (forall (a in argz | fct(a) == "Number")) {
 				match(op) {
 					case "+":
-						return @Number(a + b);
+						return @Number(argz[1] + argz[2]);
 					case "-":
-						return @Number(a - b);
+						return @Number(argz[1] - argz[2]);
 					case "*":
-						return @Number(a * b);
+						return @Number(argz[1] * argz[2]);
 					case "/":
-						return @Number(a / b);
+						return @Number(argz[1] / argz[2]);
+					case "sin":
+						return @Number(sin(argz[1]));
+					case "cos":
+						return @Number(cos(argz[1]));
 					default: abort("Error at eval($t$)");
 				}
 			} else {
-				return @Expr(op, a, b);
+				return makeTerm("Expr", [op] + argz);
 			}
 		default: abort("Error at eval($t$)");
 	}
@@ -130,12 +145,20 @@ tokenize := procedure(str) {
 	tokens := [];
 	scan (str) {
 		regex '\s+': // Skip starting whitespace
+		regex 'diff':
+			tokens += [@Func("diff")];
+		regex 'sin':
+			tokens += [@Func("sin")];
+		regex 'cos':
+			tokens += [@Func("cos")];
 		regex '0|[1-9][0-9]*' as [ num ]:
 			tokens += [@Number(int(num))];
 		regex '[a-zA-z]' as [ sym ]:
 			tokens += [@Symbol(sym)];
 		regex '[+\-*/]' as [ op ]:
 			tokens += [@Op(op)];
+		regex ',':
+			tokens += [@Comma()];
 		regex '\(':
 			tokens += [@ParanOpen()];
 		regex '\)':
@@ -144,8 +167,14 @@ tokenize := procedure(str) {
 	return tokens;
 };
 
+
+// Grammar for parsing:
+// expression = term | expression "+" term | expression "-" term
+// term = factor | term "*" factor | term "/" factor
+// factor = number | symbol | "(" + expression + ")" | function + "([arg[, arg]*])"
+
 parse_expression := procedure(tokens, last := om) {
-	// print("Parsing Expression $tokens$...");
+	print("Parsing Expression $tokens$...");
 	if (tokens == []) {
 		return last;
 	}
@@ -164,7 +193,7 @@ parse_expression := procedure(tokens, last := om) {
 };
 
 parse_term := procedure(tokens, last := om) {
-	// print("Parsing Term $tokens$...");
+	print("Parsing Term $tokens$...");
 	if (tokens == []) {
 		return om;
 	}
@@ -189,14 +218,42 @@ parse_term := procedure(tokens, last := om) {
 };
 
 parse_factor :=	procedure(tokens) {
-	// print("Parsing Factor $tokens$...");
+	print("Parsing Factor $tokens$...");
 	if (tokens == []) {
 		return om;
 	}
-	switch {
-		case fct(tokens[1]) == "Number" || fct(tokens[1]) == "Symbol":
+	match(tokens[1]) {
+		case @Number(n):
 			return parse_expression(tokens[2..], tokens[1]);
-		case tokens[1] == @ParanOpen():
+		case @Symbol(s):
+			return parse_expression(tokens[2..], tokens[1]);
+		case @Func(f):
+			if (tokens[2] != @ParanOpen()) {
+				abort("Function names need to be followed by parantheses");
+			}
+			args := collect_args(tokens[3..], 1);
+			print("Collected Args: $args$");
+			match(f) {
+				case "diff":
+					if (#args != 2) {
+						abort("Differentiation needs 2 arguments, first the expression and then the variable to differentiate by.");
+					}
+					if (#args[2] == 1 && fct(args[2][1]) != "Symbol") {
+						abort("The second argument to Differentiation must be a symbol.");
+					}
+					return @Expr("diff", parse_expression(args[1]), args[2][1]);
+				case "sin":
+					if (#args != 1) {
+						abort("sin(x) expects exactly one argument");
+					}
+					return @Expr("sin", parse_expression(args[1]));
+				case "cos":
+					if (#args != 1) {
+						abort("cos(x) expects exactly one argument");
+					}
+					return @Expr("cos", parse_expression(args[1]));
+			}
+		case @ParanOpen():
 			len := #tokens;
 			parans := 1;
 			i := 2;
@@ -216,15 +273,40 @@ parse_factor :=	procedure(tokens) {
 			}
 			return parse_expression(tokens[i+1..], parse_expression(tokens[2..i-1]));
 		default:
-			return om;
+			abort("Error at parse_factor($tokens$) - Unexpected Token");
 	}
 };
 
-
-// Grammar for parsing:
-// expression = term | expression "+" term | expression "-" term
-// term = factor | term "*" factor | term "/" factor
-// factor = number | symbol | "(" + expression + ")"
+collect_args := procedure(rw tokens, parans) {
+	print("Collecting args $tokens$...");
+	og_parans := parans;
+	args := [];
+	i := 1;
+	while (true) {
+		match(tokens[i]) {
+			case @ParanOpen():
+				parans += 1;
+			case @ParanClosed():
+				parans -= 1;
+				if (parans + 1 == og_parans) {
+					args += [tokens[..i-1]];
+					tokens := tokens[i+1..];
+					break;
+				}
+			case @Comma():
+				if (parans == og_parans) {
+					args += [tokens[..i-1]];
+					tokens := tokens[i+1..];
+					i := 0;
+				}
+		}
+		i += 1;
+		if (#tokens < i) {
+			abort("Error at parse_factor($tokens$): Unmatched Parantheses.");
+		}
+	}
+	return args;
+};
 
 
 parse_expr := procedure(str) {
@@ -232,15 +314,33 @@ parse_expr := procedure(str) {
 	return parse_expression(tokens);
 };
 
-stringify_expr := procedure(expr) {
-	// TODO:
-	// Convert expression to String
+stringify_expr := procedure(expr, outsideOp := om) {
+	match(expr) {
+		case @Number(n):
+			return "$n$";
+		case @Symbol(s):
+			return s;
+		case @Expr(op, a, b):
+			if (outsideOp != om && operator_precedence(outsideOp) > operator_precedence(op)) {
+				return "(" + stringify_expr(a, op) + " " + op + " " + stringify_expr(b, op) + ")";
+			} else {
+				return stringify_expr(a, op) + " " + op + " " + stringify_expr(b, op);
+			}
+	}
+};
+
+evalStr := procedure(str) {
+	return stringify_expr(eval(str));
 };
 
 // Test:
-print("Expected: 7/5  -  Received: ", eval(@Expr("*", @Number(7), @Expr("diff", (@Expr("/", @Symbol("x"), @Number(5))), @Symbol('x')))));
-print("Expected: @Expr('*', @Expr('+', @Symbol('a'), @Number(7)), @Number(34))  -  Received: ", eval("(a + 7) * 34"));
-print("Expected: @Number(12)  -  Received: ", eval("5 + 7"));
-print("Expected: @Expr('*', @Number(5), @Symbol('x'))  -  Received: ", eval("5x"));
-print("Expected: @Expr('*', @Number(5), @Expr('+', @Symbol('x'), @Number(1)))  -  Received: ", eval("5(x+1)"));
+// print("Expected: 7/5  -  Received: ", stringify_expr(eval(@Expr("*", @Number(7), @Expr("diff", (@Expr("/", @Symbol("x"), @Number(5))), @Symbol('x'))))));
+// print("Expected: @Expr('*', @Expr('+', @Symbol('a'), @Number(7)), @Number(34))  -  Received: ", eval("(a + 7) * 34"));
+// print("Expected: @Number(12)  -  Received: ", eval("5 + 7"));
+// print("Expected: @Expr('*', @Number(5), @Symbol('x'))  -  Received: ", eval("5x"));
+// print("Expected: @Expr('*', @Number(5), @Expr('+', @Symbol('x'), @Number(1)))  -  Received: ", eval("5(x+1)"));
 
+// print(stringify_expr(eval("(a + 7) * 34")));
+
+print(evalStr("diff(diff(x * x * y, x), y)"));
+print(evalStr("sin(cos(0))"));
