@@ -61,6 +61,10 @@ diff := procedure(expr, sym) {
 							@Expr("*", b, b)));
 		case @Expr("diff", a, b):
 			return diff(diff(a, b), sym);
+		case @Expr("sin", a):
+			return eval(@Expr("cos", a));
+		case @Expr("cos", a):
+			return eval(@Expr("sin", a));
 		default: abort("Error at diff($expr$, $sym$)");
 	}
 };
@@ -69,7 +73,7 @@ eval := procedure(t) {
 	if (isString(t)) {
 		t := parse_expr(t);
 	}
-	print("Evaluating $t$...");
+	// print("Evaluating $t$...");
 	match(t) {
 		case @Number(n):
 			return t;
@@ -104,12 +108,12 @@ eval := procedure(t) {
 			return @Number(sin(n));
 		case @Expr("cos", @Number(n)):
 			return @Number(cos(n));
-		case @Expr(f, @Symbol(n)) | f == "sin" || f == "cos":
+		case @Expr(f, @Symbol(s)) | f == "sin" || f == "cos":
 			return t;
 		case @Expr(f, expr) | (f == "sin" || f == "cos") && fct(expr) == "Expr":
 			expr := eval(expr);
 			if (fct(expr) == "Expr") {
-				return makeTerm(f, [expr]);
+				return makeTerm("Expr", [f, expr]);
 			} else {
 				return eval(@Expr(f, expr));
 			}
@@ -174,7 +178,7 @@ tokenize := procedure(str) {
 // factor = number | symbol | "(" + expression + ")" | function + "([arg[, arg]*])"
 
 parse_expression := procedure(tokens, last := om) {
-	print("Parsing Expression $tokens$...");
+	// print("Parsing Expression $tokens$...");
 	if (tokens == []) {
 		return last;
 	}
@@ -193,7 +197,7 @@ parse_expression := procedure(tokens, last := om) {
 };
 
 parse_term := procedure(tokens, last := om) {
-	print("Parsing Term $tokens$...");
+	// print("Parsing Term $tokens$...");
 	if (tokens == []) {
 		return om;
 	}
@@ -218,7 +222,7 @@ parse_term := procedure(tokens, last := om) {
 };
 
 parse_factor :=	procedure(tokens) {
-	print("Parsing Factor $tokens$...");
+	// print("Parsing Factor $tokens$...");
 	if (tokens == []) {
 		return om;
 	}
@@ -232,7 +236,7 @@ parse_factor :=	procedure(tokens) {
 				abort("Function names need to be followed by parantheses");
 			}
 			args := collect_args(tokens[3..], 1);
-			print("Collected Args: $args$");
+			// print("Collected Args: $args$");
 			match(f) {
 				case "diff":
 					if (#args != 2) {
@@ -278,7 +282,7 @@ parse_factor :=	procedure(tokens) {
 };
 
 collect_args := procedure(rw tokens, parans) {
-	print("Collecting args $tokens$...");
+	// print("Collecting args $tokens$...");
 	og_parans := parans;
 	args := [];
 	i := 1;
@@ -315,6 +319,7 @@ parse_expr := procedure(str) {
 };
 
 stringify_expr := procedure(expr, outsideOp := om) {
+	// print("Stringifying $expr$...");
 	match(expr) {
 		case @Number(n):
 			return "$n$";
@@ -326,6 +331,9 @@ stringify_expr := procedure(expr, outsideOp := om) {
 			} else {
 				return stringify_expr(a, op) + " " + op + " " + stringify_expr(b, op);
 			}
+		case @Expr(op, a):
+			return op + "(" + stringify_expr(a, om) + ")";
+		default: abort("Error at stringify_expr($expr$, $outsideOp$)");
 	}
 };
 
@@ -340,7 +348,6 @@ evalStr := procedure(str) {
 // print("Expected: @Expr('*', @Number(5), @Symbol('x'))  -  Received: ", eval("5x"));
 // print("Expected: @Expr('*', @Number(5), @Expr('+', @Symbol('x'), @Number(1)))  -  Received: ", eval("5(x+1)"));
 
-// print(stringify_expr(eval("(a + 7) * 34")));
-
+print(evalStr("(a + 7) * 34"));
 print(evalStr("diff(diff(x * x * y, x), y)"));
-print(evalStr("sin(cos(0))"));
+print(evalStr("diff(sin(cos(x)), x)"));
