@@ -1,0 +1,125 @@
+DEBUG := false
+
+eval := procedure(token) {
+	if (isString(token)) {
+		token := parse(token);
+	}
+	if (DEBUG) {
+		print("Evaluating $token$...");
+	}
+	assert(false, "eval is not yet implemented");
+	match(token) {
+
+	}
+};
+
+parse := procedure(tokens) {
+	if (isString(tokens)) {
+		tokens := tokenize(tokens);
+	}
+	return parseExpr(tokens);
+};
+
+idxOfClosedParan(tokens, paranLevel := 1) {
+
+}
+
+parseExprList := procedure(tokens) {
+	if (DEBUG) {
+		print("Parsing expression-list $tokens$...");
+	}
+	assert(false, "parseExprList is not yet implemented");
+	res := [];
+	while(test) {
+		body
+	}
+	return res;
+};
+
+parseExpr := procedure(tokens, last := om, prec := 0) {
+	if (DEBUG) {
+		print("Parsing expression $tokens$...");
+	}
+	if (tokens == []) {
+		return last;
+	}
+	if (last == om) {
+		return parseTerm(tokens);
+	} else {
+		match(tokens[1]) {
+			case @TokOp(op):
+				// TODO
+			default:
+				return parseTerm(tokens);
+		}
+	}
+	assert(false, "parseExpr is not yet implemented");
+};
+
+parseTerm := procedure(tokens) {
+	assert(tokens != [], "parseTerm expects a non-empty list as input");
+	if (DEBUG) {
+		print("Parsing term $tokens$...");
+	}
+	match(tokens[1]) {
+		case @TokNum(num):
+			return parseExpr(tokens[2..], @Number(num));
+		case @TokName(name):
+			// Name + ParanOpen + ParanClosed are required for it to be a function-call
+			if (#tokens > 3 && fct(tokens[2]) == "TokParanOpen") {
+				idx := idxOfClosedParan(tokens[3..]);
+				args := parseExprList(tokens[3..idx]);
+				return parseExpr(tokens[idx+1..], @Func(name, args));
+			} else {
+				return parseExpr(tokens[2..], @Name(name));
+			}
+		case @TokParanOpen():
+			idx := idxOfClosedParan(tokens[2..]);
+			return parseExpr(tokens[idx+1..], @Expr(parseExpr(tokens[3..idx-1])));
+		default: abort("Error at parseTerm($tokens$) - Unexpected token");
+	}
+};
+
+tokenize := procedure(str) {
+	if (DEBUG) {
+		print("Tokenizing $str$...");
+	}
+	toks := [];
+	scan(str) {
+		regex '\s+': // Skip starting whitespace
+		regex '[a-zA-Z][a-zA-Z_0-9]*' as [ name ]:
+			toks += [ @TokName(name) ];
+		regex '0|[1-9][0-9]*' as [ num ]:
+			toks += [ @TokNum(num) ];
+		regex '(':
+			toks += [ @TokParanOpen() ];
+		regex ')':
+			toks += [ @TokParanClosed() ];
+		regex ',':
+			toks += [ @TokComma() ];
+		regex '**|[+\-*/]' as [ op ]:
+			toks += [ @TokOp(op) ];
+		default: abort("Error at tokenize($str$) - Can't tokenize $str$ properly");
+	}
+	return toks;
+};
+
+stringify := procedure(expr, outsideOp := om) {
+	if (DEBUG) {
+		print("Stringifying $expr$ with outsideOp = $outsideOp$...");
+	}
+	assert(false, "stringify is not yet implemented");
+};
+
+evalStr := procedure(str) {
+	tokens := tokenize(str);
+	expr := parse(tokens);
+	res := eval(tokens);
+	return stringify(res);
+};
+
+
+
+print(evalStr("(a + 7) * 34"));
+print(evalStr("diff(diff(x * x * y, x), y)"));
+print(evalStr("diff(sin(cos(x)), x)"));
