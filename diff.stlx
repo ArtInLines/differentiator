@@ -183,7 +183,7 @@ parse_expression := procedure(tokens, last := om) {
 		return last;
 	}
 	if (last == om) {
-		return parse_term(tokens, om);
+		return parse_term(tokens);
 	} else {
 		match (tokens[1]) {
 			case @Op("+"):
@@ -306,7 +306,7 @@ collect_args := procedure(rw tokens, parans) {
 		}
 		i += 1;
 		if (#tokens < i) {
-			abort("Error at parse_factor($tokens$): Unmatched Parantheses.");
+			abort("Error at collect_args($tokens$): Unmatched Parantheses.");
 		}
 	}
 	return args;
