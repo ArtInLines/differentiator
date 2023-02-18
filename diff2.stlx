@@ -36,7 +36,7 @@ parseExprList := procedure(tokens) {
 	return res;
 };
 
-parseExpr := procedure(tokens, last := om, prec := 0) {
+parseExpr := procedure(tokens, last := om) {
 	if (DEBUG) {
 		print("Parsing expression $tokens$...");
 	}
@@ -48,7 +48,25 @@ parseExpr := procedure(tokens, last := om, prec := 0) {
 	} else {
 		match(tokens[1]) {
 			case @TokOp(op):
-				// TODO
+				next := parseTerm(tokens[2..]);
+				if (fct(last) == "Op") {
+					[lastOp, params] := args(last);
+					assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
+
+					if (op == lastOp) {
+						if (isOpRightAssoc(op)) {
+							return @Op(op, )
+						}
+					}
+
+					lastPrec := getOpPrec(lastOp);
+					currPrec := getOpPrec(op);
+					if (currPrec > lastPrec) {
+						return @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])]);
+					} else {
+						return @Op(op, [last, next]);
+					}
+				}
 			default:
 				return parseTerm(tokens);
 		}
@@ -68,14 +86,14 @@ parseTerm := procedure(tokens) {
 			// Name + ParanOpen + ParanClosed are required for it to be a function-call
 			if (#tokens > 3 && fct(tokens[2]) == "TokParanOpen") {
 				idx := idxOfClosedParan(tokens[3..]);
-				args := parseExprList(tokens[3..idx]);
-				return parseExpr(tokens[idx+1..], @Func(name, args));
+				params := parseExprList(tokens[3..idx]);
+				return parseExpr(tokens[idx+1..], @Func(name, params));
 			} else {
 				return parseExpr(tokens[2..], @Name(name));
 			}
 		case @TokParanOpen():
 			idx := idxOfClosedParan(tokens[2..]);
-			return parseExpr(tokens[idx+1..], @Expr(parseExpr(tokens[3..idx-1])));
+			return parseExpr(tokens[idx+1..], parseExpr(tokens[3..idx-1]));
 		default: abort("Error at parseTerm($tokens$) - Unexpected token");
 	}
 };

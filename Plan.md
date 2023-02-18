@@ -54,7 +54,7 @@ The grammar for parsing (Uppercase names represent the tokens):
 
 ```
 exprList	=	expr Comma exprList | expr
-expr		=	term | expr Operator expr
+expr		=	term | expr Operator term
 term		=	Number | Name ParanOpen exprList ParanClosed | Name |  ParanOpen expr ParanClosed
 ```
 
