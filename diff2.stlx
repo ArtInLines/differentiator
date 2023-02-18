@@ -1,15 +1,70 @@
-DEBUG := false
-
-eval := procedure(token) {
-	if (isString(token)) {
-		token := parse(token);
+eval := procedure(expr) {
+	if (isString(expr)) {
+		expr := parse(expr);
 	}
-	if (DEBUG) {
-		print("Evaluating $token$...");
+	if (true) {
+		print("Evaluating $expr$...");
 	}
-	assert(false, "eval is not yet implemented");
-	match(token) {
+	match(expr) {
+		case @Number(n):
+			return expr;
+		case @Name(s):
+			return expr;
+		case @Func(f, params):
+			assert(false, "evaluating functions is not yet implemented");
+		case @Op(op, params, _):
+			assert(false, "evaluating operators is not yet implemented");
+		default: abort("Error at eval($expr$) - Unknown Expression.");
+	}
+};
 
+getMaxPrec := procedure() {
+	return 3;
+};
+
+getOpPrec := procedure(op) {
+	match(op) {
+		case "**":
+			return 3;
+		case "*":
+			return 2;
+		case "/":
+			return 2;
+		case "+":
+			return 1;
+		case "-":
+			return 1;
+		default:
+			abort("Error at getOpPrec($op$) - Unknown operator");
+	}
+};
+
+isOpRightAssoc := procedure(op) {
+	match(op) {
+		case "**":
+			return true;
+		default:
+			return false;
+	}
+};
+
+idxOfClosedParan := procedure(tokens) {
+	parans := 1;
+	i := 1;
+	while (parans != 0 && #tokens >= i) {
+		match(tokens[i]) {
+			case @TokParanOpen():
+				parans += 1;
+			case @TokParanClosed():
+				parans -= 1;
+		}
+		i += 1;
+	}
+
+	if (parans == 0) {
+		return i;
+	} else {
+		abort("Error at idxOfClosedParan($tokens$): Unmatched Parantheses.");
 	}
 };
 
@@ -20,86 +75,114 @@ parse := procedure(tokens) {
 	return parseExpr(tokens);
 };
 
-idxOfClosedParan(tokens, paranLevel := 1) {
-
-}
-
 parseExprList := procedure(tokens) {
-	if (DEBUG) {
+	if (true) {
 		print("Parsing expression-list $tokens$...");
 	}
 	assert(false, "parseExprList is not yet implemented");
 	res := [];
-	while(test) {
-		body
-	}
+	// while(test) {
+	// 	body
+	// }
 	return res;
 };
 
-parseExpr := procedure(tokens, last := om) {
-	if (DEBUG) {
-		print("Parsing expression $tokens$...");
+parseExpr := procedure(tokens, last := om, paranLevel := 0) {
+	if (true) {
+		print("Parsing expression $tokens$ with last: $last$...");
 	}
 	if (tokens == []) {
 		return last;
 	}
 	if (last == om) {
-		return parseTerm(tokens);
-	} else {
-		match(tokens[1]) {
-			case @TokOp(op):
-				next := parseTerm(tokens[2..]);
-				if (fct(last) == "Op") {
-					[lastOp, params] := args(last);
-					assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
+		return parseTerm(tokens, true, paranLevel);
+	}
 
-					if (op == lastOp) {
-						if (isOpRightAssoc(op)) {
-							return @Op(op, )
-						}
-					}
+	expr := om;
+	match(tokens[1]) {
+		case @TokOp(op):
+			next := parseTerm(tokens[2..], false, paranLevel);
+			currPrec := getOpPrec(op) + paranLevel * getMaxPrec();
+			if (true) {
+				print("next: $next$");
+				print("currPrec: $currPrec$");
+			}
+			if (fct(last) == "Op") {
+				[lastOp, params, lastPrec] := args(last);
+				assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
 
-					lastPrec := getOpPrec(lastOp);
-					currPrec := getOpPrec(op);
-					if (currPrec > lastPrec) {
-						return @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])]);
+				if (op == lastOp) {
+					if (isOpRightAssoc(op)) {
+						expr := @Op(op, [next] + params, currPrec);
 					} else {
-						return @Op(op, [last, next]);
+						expr := @op(op, params + [next], currPrec);
+					}
+				} else {
+					if (currPrec > lastPrec) {
+						expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])], currPrec);
+					} else {
+						expr := @Op(op, [last, next], currPrec);
 					}
 				}
-			default:
-				return parseTerm(tokens);
-		}
+			} else {
+				expr := @Op(op, [last, next], currPrec);
+			}
+		default:
+			expr := parseTerm(tokens, false, paranLevel);
 	}
-	assert(false, "parseExpr is not yet implemented");
+	if (true) {
+		print("Parsing done - Result: $expr$");
+	}
+	return expr;
 };
 
-parseTerm := procedure(tokens) {
+parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
 	assert(tokens != [], "parseTerm expects a non-empty list as input");
-	if (DEBUG) {
-		print("Parsing term $tokens$...");
+	if (true) {
+		print("Parsing term $tokens$ with rec: $rec$...");
 	}
 	match(tokens[1]) {
 		case @TokNum(num):
-			return parseExpr(tokens[2..], @Number(num));
+			tokens := tokens[2..];
+			if (rec) {
+				return parseExpr(tokens, @Number(num), paranLevel);
+			} else {
+				return @Number(num);
+			}
 		case @TokName(name):
 			// Name + ParanOpen + ParanClosed are required for it to be a function-call
 			if (#tokens > 3 && fct(tokens[2]) == "TokParanOpen") {
 				idx := idxOfClosedParan(tokens[3..]);
-				params := parseExprList(tokens[3..idx]);
-				return parseExpr(tokens[idx+1..], @Func(name, params));
+				params := parseExprList(tokens[3..idx], om, paranLevel);
+				tokens := tokens[idx+2..];
+				if (rec) {
+					return parseExpr(tokens, @Func(name, params), paranLevel);
+				} else {
+					return @Func(name, params);
+				}
 			} else {
-				return parseExpr(tokens[2..], @Name(name));
+				tokens := tokens[2..];
+				if (rec) {
+					return parseExpr(tokens, @Name(name), paranLevel);
+				} else {
+					return @Name(name);
+				}
 			}
 		case @TokParanOpen():
 			idx := idxOfClosedParan(tokens[2..]);
-			return parseExpr(tokens[idx+1..], parseExpr(tokens[3..idx-1]));
+			expr := parseExpr(tokens[2..idx-1], om, paranLevel + 1);
+			tokens := tokens[idx+1..];
+			if (rec) {
+				return parseExpr(tokens, expr, paranLevel);
+			} else {
+				return expr;
+			}
 		default: abort("Error at parseTerm($tokens$) - Unexpected token");
 	}
 };
 
 tokenize := procedure(str) {
-	if (DEBUG) {
+	if (true) {
 		print("Tokenizing $str$...");
 	}
 	toks := [];
@@ -109,13 +192,13 @@ tokenize := procedure(str) {
 			toks += [ @TokName(name) ];
 		regex '0|[1-9][0-9]*' as [ num ]:
 			toks += [ @TokNum(num) ];
-		regex '(':
+		regex '\(':
 			toks += [ @TokParanOpen() ];
-		regex ')':
+		regex '\)':
 			toks += [ @TokParanClosed() ];
 		regex ',':
 			toks += [ @TokComma() ];
-		regex '**|[+\-*/]' as [ op ]:
+		regex '\*\*|[+\-\*/]' as [ op ]:
 			toks += [ @TokOp(op) ];
 		default: abort("Error at tokenize($str$) - Can't tokenize $str$ properly");
 	}
@@ -123,7 +206,7 @@ tokenize := procedure(str) {
 };
 
 stringify := procedure(expr, outsideOp := om) {
-	if (DEBUG) {
+	if (true) {
 		print("Stringifying $expr$ with outsideOp = $outsideOp$...");
 	}
 	assert(false, "stringify is not yet implemented");
@@ -132,7 +215,7 @@ stringify := procedure(expr, outsideOp := om) {
 evalStr := procedure(str) {
 	tokens := tokenize(str);
 	expr := parse(tokens);
-	res := eval(tokens);
+	res := eval(expr);
 	return stringify(res);
 };
 
