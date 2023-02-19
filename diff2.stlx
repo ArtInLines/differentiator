@@ -1,8 +1,176 @@
-eval := procedure(expr) {
+class global() {
+	static {
+		DEBUG := false;
+	}
+}
+
+reduceFromFirst := procedure(l, f) {
+	assert(l != [], "reduceFromFirst expects a non-empty list as input");
+	res := l[1];
+	for (x in l[2..]) {
+		res := f(res, x);
+	}
+	return res;
+};
+
+join := procedure(l, del := ", ") {
+	match(l) {
+		case []:    return "";
+		case [x]:   return "$x$";
+		case [x|r]: return "$x$$del$$join(r, del)$";
+	}
+};
+
+// Returns true, if at least f(x) returns true for at least two elements in l
+some := procedure(l, f) {
+	foundOne := false;
+	for (x in l) {
+		if (f(x)) {
+			if (!foundOne) {
+				foundOne := true;
+			} else {
+				return true;
+			}
+		}
+	}
+	return false;
+};
+
+// Splits a list in two sublists.
+// The first sublists contains all elements for which f(x) is true.
+// The second sublist contains all other elements.
+splitListInTwo := procedure(l, f) {
+	a := [];
+	b := [];
+	for (x in l) {
+		if (f(x)) {
+			a += [x];
+		} else {
+			b += [x];
+		}
+	}
+	return [a, b];
+};
+
+addOpRule := procedure(rw rules, op, test, eval) {
+	if (op in domain(rules)) {
+		rules[op] += [[test, eval]];
+	} else {
+		rules[op] := [[test, eval]];
+	}
+	return rules;
+};
+
+addOpRules := procedure(rw rules, op, newRules) {
+	for (newRule in newRules) {
+		assert(#newRule == 2, "An evalutation rule always has to consist of exactly two functions, a test and an eval function.");
+		addOpRule(rules, op, newRule[1], newRule[2]);
+	}
+	return rules;
+};
+
+allNumRule := procedure(reduceOp) {
+	return [
+		params |-> forall (p in params | fct(p) == "Number"),
+		[params, prec] |=> @Number(reduceFromFirst([ args(p)[1] : p in params ], reduceOp))
+	];
+};
+
+someNumRule := procedure(op, reduceOp) {
+	return [
+		params |-> some(params, p |-> fct(p) == "Number"),
+		closure(params, prec) {
+			[ nums, others ] := splitListInTwo(params, p |-> fct(p) == "Number");
+			n := reduceFromFirst([ args(n)[1] : n in nums ], reduceOp);
+			return @Op(op, others + [@Number(n)], prec);
+		}
+	];
+};
+
+someNumAfterFirstRule := procedure(op, reduceOp) {
+	return [
+		params |-> some(params[2..], p |-> fct(p) == "Number"),
+		closure(params, prec) {
+			[ nums, others ] := splitListInTwo(params[2..], p |-> fct(p) == "Number");
+			n := reduceFromFirst([ args(n)[1] : n in nums ], reduceOp);
+			return @Op(op, [params[1]] + others + [@Number(n)], prec);
+		}
+	];
+};
+
+neutralElRule := procedure(op, e) {
+	return [
+		params |=> exists (p in params | fct(p) == "Number" && args(p)[1] == e),
+		closure(params, prec) {
+			params := [ p : p in params | fct(p) != "Number" || args(p)[1] != e ];
+			if (#params == 1) {
+				return params[1];
+			} else {
+				return @Op(op, params, prec);
+			}
+		}
+	];
+};
+
+defaultRules := procedure() {
+	rules := {};
+	r := [
+		["+", [
+			allNumRule([a, b] |-> a + b),
+			someNumRule("+", [a, b] |-> a + b),
+			neutralElRule("+", 0)
+		]],
+		["*", [
+			allNumRule([a, b] |-> a * b),
+			someNumRule("*", [a, b] |-> a * b),
+			[
+				params |-> exists (p in params | fct(p) == "Number" && args(p)[1] == 0),
+				[params, prec] |-> @Number(0)
+			],
+			neutralElRule("*", 1)
+		]],
+		["-", [
+			allNumRule([a, b] |-> a - b),
+			someNumAfterFirstRule("-", [a, b] |-> a + b),
+			neutralElRule("-", 0)
+		]],
+		["/", [
+			[
+				params |-> exists (p in params[2..] | fct(p) == "Number" && args(p)[1] == 0),
+				[params, prec] |-> abort("Division by 0,")
+			],
+			[
+				params |-> fct(params[1]) == "Number" && args(params[1])[1] == 0,
+				[params, prec] |-> @Number(0)
+			],
+			allNumRule([a, b] |-> a / b),
+			someNumAfterFirstRule("/", [a, b] |-> a * b),
+			[
+				params |-> exists (p in params[2..] | fct(p) == "Number" && args(p)[1] == 1),
+				procedure(params, prec) {
+					den := [ p : p in params[2..] | fct(p) != "Number" || args(p)[1] != 1 ];
+					if (den == []) {
+						return params[1];
+					} else {
+						return @Op("/", [params[1]] + den, prec);
+					}
+				}
+			]
+		]]
+	];
+	for (rule in r) {
+		addOpRules(rules, rule[1], rule[2]);
+	}
+	return rules;
+};
+
+
+
+eval := procedure(expr, rules) {
 	if (isString(expr)) {
 		expr := parse(expr);
 	}
-	if (true) {
+	if (global.DEBUG) {
 		print("Evaluating $expr$...");
 	}
 	match(expr) {
@@ -11,9 +179,26 @@ eval := procedure(expr) {
 		case @Name(s):
 			return expr;
 		case @Func(f, params):
+			// TODO use rules to determine evaluation
 			assert(false, "evaluating functions is not yet implemented");
-		case @Op(op, params, _):
-			assert(false, "evaluating operators is not yet implemented");
+		case @Op(op, params, prec):
+			if (op in domain(rules)) {
+				params := [ eval(p, rules) : p in params ];
+				if (global.DEBUG) {
+					print("params: $params$");
+				}
+				for (r in rules[op]) {
+					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
+					t := r[1];
+					e := r[2];
+					if (t(params)) {
+						return e(params, prec);
+					}
+				}
+				return @Op(op, params, prec);
+			} else {
+				abort("Error at eval($expr$) - Operation not found in rules.");
+			}
 		default: abort("Error at eval($expr$) - Unknown Expression.");
 	}
 };
@@ -76,7 +261,7 @@ parse := procedure(tokens) {
 };
 
 parseExprList := procedure(tokens) {
-	if (true) {
+	if (global.DEBUG) {
 		print("Parsing expression-list $tokens$...");
 	}
 	assert(false, "parseExprList is not yet implemented");
@@ -88,7 +273,7 @@ parseExprList := procedure(tokens) {
 };
 
 parseExpr := procedure(tokens, last := om, paranLevel := 0) {
-	if (true) {
+	if (global.DEBUG) {
 		print("Parsing expression $tokens$ with last: $last$...");
 	}
 	if (tokens == []) {
@@ -99,11 +284,13 @@ parseExpr := procedure(tokens, last := om, paranLevel := 0) {
 	}
 
 	expr := om;
-	match(tokens[1]) {
+	token := tokens[1];
+	tokens := tokens[2..];
+	match(token) {
 		case @TokOp(op):
-			next := parseTerm(tokens[2..], false, paranLevel);
+			next := parseTerm(tokens, false, paranLevel);
 			currPrec := getOpPrec(op) + paranLevel * getMaxPrec();
-			if (true) {
+			if (global.DEBUG) {
 				print("next: $next$");
 				print("currPrec: $currPrec$");
 			}
@@ -115,11 +302,11 @@ parseExpr := procedure(tokens, last := om, paranLevel := 0) {
 					if (isOpRightAssoc(op)) {
 						expr := @Op(op, [next] + params, currPrec);
 					} else {
-						expr := @op(op, params + [next], currPrec);
+						expr := @Op(op, params + [next], currPrec);
 					}
 				} else {
 					if (currPrec > lastPrec) {
-						expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])], currPrec);
+						expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next], lastPrec)], currPrec);
 					} else {
 						expr := @Op(op, [last, next], currPrec);
 					}
@@ -130,15 +317,15 @@ parseExpr := procedure(tokens, last := om, paranLevel := 0) {
 		default:
 			expr := parseTerm(tokens, false, paranLevel);
 	}
-	if (true) {
+	if (global.DEBUG) {
 		print("Parsing done - Result: $expr$");
 	}
-	return expr;
+	return parseExpr(tokens, expr);
 };
 
 parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
 	assert(tokens != [], "parseTerm expects a non-empty list as input");
-	if (true) {
+	if (global.DEBUG) {
 		print("Parsing term $tokens$ with rec: $rec$...");
 	}
 	match(tokens[1]) {
@@ -182,7 +369,7 @@ parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
 };
 
 tokenize := procedure(str) {
-	if (true) {
+	if (global.DEBUG) {
 		print("Tokenizing $str$...");
 	}
 	toks := [];
@@ -190,8 +377,10 @@ tokenize := procedure(str) {
 		regex '\s+': // Skip starting whitespace
 		regex '[a-zA-Z][a-zA-Z_0-9]*' as [ name ]:
 			toks += [ @TokName(name) ];
+		regex '(0|[1-9][0-9]*).(0|[1-9][0-9]*)' as [ a, b ]:
+			toks += [ @TokNum(real("$a$.$b$")) ];
 		regex '0|[1-9][0-9]*' as [ num ]:
-			toks += [ @TokNum(num) ];
+			toks += [ @TokNum(int(num)) ];
 		regex '\(':
 			toks += [ @TokParanOpen() ];
 		regex '\)':
@@ -205,22 +394,50 @@ tokenize := procedure(str) {
 	return toks;
 };
 
-stringify := procedure(expr, outsideOp := om) {
-	if (true) {
+stringify := procedure(expr, outsidePrec := om) {
+	if (global.DEBUG) {
 		print("Stringifying $expr$ with outsideOp = $outsideOp$...");
 	}
-	assert(false, "stringify is not yet implemented");
+	match(expr) {
+		case @Name(s):
+			return s;
+		case @Number(n):
+			return "$n$";
+		case @Func(f, params):
+			params := [ stringify(p) : p in params ];
+			params := join(params);
+			return "$f$($params$)";
+		case @Op(op, params, prec):
+			params := [ stringify(p, prec) : p in params ];
+			res := join(params, " $op$ ");
+			if (outsidePrec != om && prec > outsidePrec) {
+				return "($res$)";
+			} else {
+				return res;
+			}
+		default: abort("Error at stringify($expr$, $outsideOp$) - Unexpected expression.");
+	}
 };
 
-evalStr := procedure(str) {
+evalStr := procedure(str, rules, includeBefore := true) {
 	tokens := tokenize(str);
 	expr := parse(tokens);
-	res := eval(expr);
-	return stringify(res);
+	res := eval(expr, rules);
+	outStr := stringify(res);
+	if (includeBefore) {
+		return "$str$ -> $outStr$";
+	} else {
+		return outStr;
+	}
 };
 
 
 
-print(evalStr("(a + 7) * 34"));
-print(evalStr("diff(diff(x * x * y, x), y)"));
-print(evalStr("diff(sin(cos(x)), x)"));
+rules := defaultRules();
+print(evalStr("a + 0", rules));
+print(evalStr("a * 0", rules));
+print(evalStr("a + 0 * b - 6 - 3", rules));
+print(evalStr("(a + 7) * 34", rules));
+// print(evalStr("diff(diff(x * x * y, x), y)", rules));
+// print(evalStr("diff(sin(cos(x)), x)", rules));
+// print(defaultRules());

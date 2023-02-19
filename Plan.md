@@ -90,3 +90,11 @@ The parser should also check for arity. Each prefix function should have associa
 Users should be allowed to define their own functions. These functions must be prefix functions and their names must follow the above described rules for names. If the name is taken by a non-user defined function, an error is thrown. The user must then provide a list of rules for evaluating said function. The arity is taken from said rules.
 
 TODO: How should users define their own functions.
+
+## Storing Evaluation-Rules
+
+Rules fo evaluation should be stored in some kind of data structure, that allows easily adding rules later on. This not only enables easier improvements to the software later on, but also is necessary to add support for user-defined function.
+
+The basic idea is to use a dictionary for storing said rules. SetlX allows storing dictionaries as binary relations (which use red-black-trees under the hood). If necessary these could easily be extended to n-ary relations.
+
+Let $R$ be a binary relation and more specifically a "map" (i.e. $\forall (x, y), (x, z) \in R : y = z$). For all relations $(x, y) \in R$, $x$ is the name of an operator or function and $y$ is a list of rules. Each rule contains of a test function, $t$ and an evaluation function, $e$. Both functions take the list of provided operands as an argument (the operands have beforehand already been evaluated recursively). $t$ should output a boolean, which indicates whether the specified rule should be evaluated or not. $e$ is only called, if $t$ returns true. $e$ should result of the evaluation.
