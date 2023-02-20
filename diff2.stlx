@@ -167,6 +167,20 @@ neutralElRule := procedure(op, e) {
 	];
 };
 
+neutralElAfterFirstRule := procedure(op, e) {
+	return [
+		params |=> exists (p in params[2..] | fct(p) == "Number" && args(p)[1] == e),
+		closure(params) {
+			remaining := [ p : p in params[2..] | fct(p) != "Number" || args(p)[1] != e ];
+			if (#remaining == 0) {
+				return params[1];
+			} else {
+				return @Op(op, [params[1]] + remaining);
+			}
+		}
+	];
+};
+
 nullElRule := procedure(op, null, res) {
 	return [
 		params |=> exists (p in params | fct(p) == "Number" && args(p)[1] == null),
@@ -174,17 +188,60 @@ nullElRule := procedure(op, null, res) {
 	];
 };
 
-checkArityRule := procedure(op, arity) {
+// cmpType can be positive, negative or 0. If 0, the arity has to be equal to the provided one. If positive, the arity has to be greater than or equal. If negative, the arity has to be less than or equal.
+checkArityRule := procedure(op, arity, cmpType := 0) {
 	return [
-		params |=> #params != arity,
+		closure(params) {
+			if (cmpType == 0) {
+				return #params != arity;
+			} else if (cmpType < 0) {
+				return #params > arity;
+			} else {
+				return #params < arity;
+			}
+		},
 		params |=> abort("$op$ exprects $arity$ argument(s), but received $#params$ argument(s).")
 	];
 };
 
-defaultRules := procedure() {
-	rules := {};
-	r := [
+chainRule := procedure(f, innerRules) {
+	// Assume each rule in innerRules is a list with two elements, where the first element is the name of the function and the second element is a function taking the parameters as input and returning an expression as output
+	return [
+		params |=> fct(params[1]) == "Func" && args(params[1])[1] in domain(innerRules),
+		closure(params) {
+			fname := args(params[1])[1];
+			fparams := args(params[1])[2];
+			otherParams := params[2..];
+			fdiff := innerRules[fname];
+			return @Op("*", [@Func(f, fparams + otherParams), fdiff(fparams)]);
+		}
+	];
+};
+
+makeRules := procedure(rules, singleRulePerOp := false) {
+	res := {};
+	for (r in rules) {
+		assert(#r == 2, "Every rule must be a list with two elements.");
+		if (singleRulePerOp) {
+			res[r[1]] := r[2];
+		} else {
+			addOpRules(res, r[1], r[2]);
+		}
+	}
+	return res;
+};
+
+makeDiffFuncRules := procedure() {
+	return makeRules([
+		["sin", params |-> @Func("cos", params)],
+		["cos", params |-> @UnaryOp("-", @Func("sin", params))]
+	], true);
+};
+
+makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
+	return makeRules([
 		["**", [
+			checkArityRule("**", 2, 1),
 			nullElRule("**", 0, @Number(1)),
 			someNumRule("**", [a, b] |-> a ** b, true),
 			neutralElRule("**", 1),
@@ -194,15 +251,23 @@ defaultRules := procedure() {
 			]
 		]],
 		["+", [
+			checkArityRule("+", 2, 1),
 			someNumRule("+", [a, b] |-> a + b),
 			someSameExprsRule("+", sames |-> @Op("*", [@Number(#sames), sames[1]])),
 			neutralElRule("+", 0)
 		]],
 		["*", [
+			// Must have at least 2 operands
+			checkArityRule("*", 2, 1),
+			// 0 * a == 0
 			nullElRule("*", 0, @Number(0)),
+			// calculate number operands
 			someNumRule("*", [a, b] |-> a * b),
+			// a * a == a ** 2
 			someSameExprsRule("*", sames |-> @Op("**", [sames[1], @Number(#sames)])),
+			// a * 1 == a
 			neutralElRule("*", 1),
+			// (a ** b) * (a ** c) == a ** (b + c)
 			cachedExprRule("*", procedure(p) {
 				match(p) {
 					case @Op(op, params):
@@ -235,14 +300,33 @@ defaultRules := procedure() {
 					}
 				}
 				return @Op("**", [base, @Op("+", exps)]);
-			})
+			}),
+			// a * b * (c +/- d)  ==  a * b * c  +/-  a * b * d
+			// TODO: Currently only applies if there is exactly one paranthesized expression - is this wanted?
+			// TODO: Port rule to "/" (or generalize into an abstract rule?)
+			[
+				params |-> #[p : p in params | fct(p) == "Op" && args(p)[1] in {"+", "-"}] == 1 && exists ( p in params | fct(p) != "Op" || args(p)[1] notin {"+", "-"} ),
+				procedure(params) {
+					[distributables, others] := splitListInTwo(params, p |-> fct(p) == "Op" && args(p)[1] in {"+", "-"});
+
+					assert(#distributables == 1, "Rule should currently only apply if there is exactly one paranthesized expression to distribute");
+					[distOp, distParams] := args(distributables[1]);
+					return @Op(distOp, [ @Op("*", others + [dp]) : dp in distParams ]);
+				}
+			]
 		]],
 		["-", [
+			[
+				params |-> #params == 1,
+				params |-> @Op("-", [@Number(0)] + params)
+			],
+			checkArityRule("-", 2, 1),
 			allNumRule([a, b] |-> a - b),
 			someNumAfterFirstRule("-", [a, b] |-> a + b),
-			neutralElRule("-", 0)
+			neutralElAfterFirstRule("-", 0)
 		]],
 		["/", [
+			checkArityRule("/", 2, 1),
 			[
 				params |-> exists (p in params[2..] | fct(p) == "Number" && args(p)[1] == 0),
 				params |-> abort("Division by 0,")
@@ -253,17 +337,7 @@ defaultRules := procedure() {
 			],
 			allNumRule([a, b] |-> a / b),
 			someNumAfterFirstRule("/", [a, b] |-> a * b),
-			[
-				params |-> exists (p in params[2..] | fct(p) == "Number" && args(p)[1] == 1),
-				procedure(params) {
-					den := [ p : p in params[2..] | fct(p) != "Number" || args(p)[1] != 1 ];
-					if (den == []) {
-						return params[1];
-					} else {
-						return @Op("/", [params[1]] + den);
-					}
-				}
-			]
+			neutralElAfterFirstRule("/", 1)
 		]],
 		["diff", [
 			checkArityRule("diff", 2),
@@ -332,13 +406,24 @@ defaultRules := procedure() {
 					dens := [ @Op("*", [x, x]) : x in opArgs[2..] ];
 					return @Op("/", [@Op("-", inner)] + dens);
 				}
+			],
+			chainRule("diff", diffFuncRules)
+		]],
+		["sin", [
+			checkArityRule("sin", 1),
+			[
+				params |-> fct(params[1]) == "Number",
+				params |-> sin(params[1][1])
+			]
+		]],
+		["cos", [
+			checkArityRule("cos", 1),
+			[
+				params |-> fct(params[1]) == "Number",
+				params |-> cos(params[1][1])
 			]
 		]]
-	];
-	for (rule in r) {
-		addOpRules(rules, rule[1], rule[2]);
-	}
-	return rules;
+	]);
 };
 
 
@@ -367,12 +452,16 @@ eval := procedure(expr, rules) {
 					e := r[2];
 					if (t(params)) {
 						res := e(params);
+						if (global.DEBUG) {
+							print("Applied rule: $r$");
+							print("Result: $res$");
+						}
 						return eval(res, rules);
 					}
 				}
-				return @Func(op, params);
+				return @Func(f, params);
 			} else {
-				abort("Error at eval($expr$) - Operation not found in rules.");
+				abort("Error at eval($expr$) - Function not found in rules.");
 			}
 		case @Op(op, params):
 			if (op in domain(rules)) {
@@ -386,12 +475,39 @@ eval := procedure(expr, rules) {
 					e := r[2];
 					if (t(params)) {
 						res := e(params);
+						if (global.DEBUG) {
+							print("Applied rule: $r$");
+							print("Result: $res$");
+						}
 						return eval(res, rules);
 					}
 				}
 				return @Op(op, params);
 			} else {
 				abort("Error at eval($expr$) - Operation not found in rules.");
+			}
+		case @UnaryOp(op, param):
+			if (op in domain(rules)) {
+				if (global.DEBUG) {
+					print("unaryOp: $op$ - param: $param$");
+				}
+				params := [eval(param, rules)];
+				for (r in rules[op]) {
+					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
+					t := r[1];
+					e := r[2];
+					if (t(params)) {
+						res := e(params);
+						if (global.DEBUG) {
+							print("Applied rule: $r$");
+							print("Result: $res$");
+						}
+						return eval(res, rules);
+					}
+				}
+				return @UnaryOp(op, params);
+			} else {
+				abort("Error at eval($expr$) - Unary Operation not found in rules.");
 			}
 		default: abort("Error at eval($expr$) - Unknown Expression.");
 	}
@@ -497,7 +613,7 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 	if (tokens == []) {
 		return last;
 	}
-	if (last == om) {
+	if (last == om && fct(tokens[1]) != "TokOp") {
 		return parseTerm(tokens, true, paranLevel);
 	}
 
@@ -513,7 +629,9 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 				print("next: $next$");
 				print("currPrec: $currPrec$");
 			}
-			if (fct(last) == "Op") {
+			if (last == om) {
+				expr := @UnaryOp(op, next);
+			} else if (fct(last) == "Op") {
 				[lastOp, params] := args(last);
 				assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
 
@@ -560,8 +678,6 @@ parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
 			if (#tokens > 3 && fct(tokens[2]) == "TokParanOpen") {
 				tokens := tokens[3..];
 				idx := idxOfClosedParan(tokens);
-				// print("tokens: $tokens$");
-				// print("idx: $idx$");
 				assert(fct(tokens[idx]) == "TokParanClosed", "The index returned by idxOfClosedParan should point to a closing parantheses. Returned index is $idx$ and points at $tokens[idx]$");
 				innerArgs := tokens[..idx];
 				tokens := tokens[idx+2..];
@@ -606,8 +722,8 @@ tokenize := procedure(str) {
 		regex '\s+': // Skip starting whitespace
 		regex '[a-zA-Z][a-zA-Z_0-9]*' as [ name ]:
 			toks += [ @TokName(name) ];
-		regex '(0|[1-9][0-9]*).(0|[1-9][0-9]*)' as [ a, b ]:
-			toks += [ @TokNum(real("$a$.$b$")) ];
+		regex '(0|[1-9][0-9]*).[0-9]+' as [ num, _ ]:
+			toks += [ @TokNum(double(num)) ];
 		regex '0|[1-9][0-9]*' as [ num ]:
 			toks += [ @TokNum(int(num)) ];
 		regex '\(':
@@ -649,29 +765,53 @@ stringify := procedure(expr, outsidePrec := om) {
 	}
 };
 
-evalStr := procedure(str, rules, includeBefore := true) {
-	tokens := tokenize(str);
-	expr := parse(tokens);
-	res := eval(expr, rules);
-	outStr := stringify(res);
-	if (includeBefore) {
-		return "$str$ -> $outStr$";
+evalStr := procedure(strs, rules, includeBefore := true, toPrint := true) {
+	pad := 0;
+	if (isList(strs)) {
+		lengths := [#s : s in strs];
+		pad := max(lengths);
 	} else {
-		return outStr;
+		strs := [strs];
 	}
+
+	outStrs := [];
+	for (s in strs) {
+		// global.DEBUG := true;
+		// global.DEBUG := false;
+		tokens := tokenize(s);
+		expr := parse(tokens);
+		res := eval(expr, rules);
+		outStr := stringify(res);
+
+		if (includeBefore) {
+			padding := '';
+			if (pad > #s) {
+				padding := ' ' * (pad - #s);
+			}
+			outStr := "$s$$padding$ -->  $outStr$";
+		}
+		if (toPrint) {
+			print(outStr);
+		}
+		outStrs += [outStr];
+	}
+	return outStrs;
 };
 
 
 
-rules := defaultRules();
-print(evalStr("a + 0", rules));
-print(evalStr("a * 0", rules));
-print(evalStr("a + 0 * b - 6 - 3", rules));
-print(evalStr("(a + 7) * 34", rules));
-print(evalStr("diff(a, a)", rules));
-print(evalStr("diff(diff(x * x * y, x), y)", rules));
-print(evalStr("diff(f / g / h, f)", rules));
-print(evalStr("diff(x * x, x)", rules));
-print(evalStr("(x * (7 + 8 / x)) - diff(7 * x * x * x, x)", rules));
-// print(evalStr("diff(sin(cos(x)), x)", rules));
-// print(defaultRules());
+rules := makeDefaultRules();
+evalStr([
+	"x + 0",
+	"x * 0",
+	"x + 0 * b - 6 - 3",
+	"(x + 7) * 34",
+	// "diff(a, a)",
+	// "diff(diff(x * x * y, x), y)",
+	// "diff(f / g / h, f)",
+	// "diff(x * x, x)",
+	// "(x * (7 + 8 / x)) - diff(7 * x * x * x, x)",
+	// "diff(diff(cos(sin(x)), x), x)",
+	"-6 * (-3) * x",
+	"diff((x ** 2) + sin(x), x)"
+], rules);
