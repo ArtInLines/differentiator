@@ -4,13 +4,21 @@ class global() {
 	}
 }
 
-reduceFromFirst := procedure(l, f) {
+reduceFromFirst := procedure(l, f, rev := false) {
 	assert(l != [], "reduceFromFirst expects a non-empty list as input");
-	res := l[1];
-	for (x in l[2..]) {
-		res := f(res, x);
+	if (rev) {
+		res := l[-1];
+		for (i in {2..#l}) {
+			res := f(l[-i], res);
+		}
+		return res;
+	} else {
+		res := l[1];
+		for (x in l[2..]) {
+			res := f(res, x);
+		}
+		return res;
 	}
-	return res;
 };
 
 join := procedure(l, del := ", ") {
@@ -69,20 +77,24 @@ addOpRules := procedure(rw rules, op, newRules) {
 	return rules;
 };
 
-allNumRule := procedure(reduceOp) {
+allNumRule := procedure(reduceOp, reversed := false) {
 	return [
 		params |-> forall (p in params | fct(p) == "Number"),
-		[params, prec, rec] |=> @Number(reduceFromFirst([ args(p)[1] : p in params ], reduceOp))
+		params |=> @Number(reduceFromFirst([ args(p)[1] : p in params ], reduceOp, reversed))
 	];
 };
 
-someNumRule := procedure(op, reduceOp) {
+someNumRule := procedure(op, reduceOp, reversed := false) {
 	return [
 		params |-> some(params, p |-> fct(p) == "Number"),
-		closure(params, prec, rec) {
+		closure(params) {
 			[ nums, others ] := splitListInTwo(params, p |-> fct(p) == "Number");
-			n := reduceFromFirst([ args(n)[1] : n in nums ], reduceOp);
-			return @Op(op, others + [@Number(n)], prec);
+			n := reduceFromFirst([ args(n)[1] : n in nums ], reduceOp, reversed);
+			if (others == []) {
+				return @Number(n);
+			} else {
+				return @Op(op, others + [@Number(n)]);
+			}
 		}
 	];
 };
@@ -90,51 +102,140 @@ someNumRule := procedure(op, reduceOp) {
 someNumAfterFirstRule := procedure(op, reduceOp) {
 	return [
 		params |-> some(params[2..], p |-> fct(p) == "Number"),
-		closure(params, prec, rec) {
+		closure(params) {
 			[ nums, others ] := splitListInTwo(params[2..], p |-> fct(p) == "Number");
 			n := reduceFromFirst([ args(n)[1] : n in nums ], reduceOp);
-			return @Op(op, [params[1]] + others + [@Number(n)], prec);
+			return @Op(op, [params[1]] + others + [@Number(n)]);
 		}
 	];
+};
+
+class cachedExprRuleClass(op, calcCacheVal, replace) {
+	op := op;
+	calcCacheVal := calcCacheVal;
+	replace := replace;
+	cachedVal := om;
+	test := procedure(params) {
+		cachedExprs := {};
+		for (p in params) {
+			val := this.calcCacheVal(p);
+			if (val != om) {
+				if (val in cachedExprs) {
+					this.cachedVal := val;
+					return true;
+				}
+				cachedExprs += {val};
+			}
+		}
+		return false;
+	};
+	eval := procedure(params) {
+		assert(this.cachedVal != om, "Cached Value shouldn't be able to be om, since values that are om should get discarded.");
+		[ sames, others ] := splitListInTwo(params, p |=> cachedVal == calcCacheVal(p));
+		replacement := this.replace(sames);
+		if (others == []) {
+			return replacement;
+		} else {
+			return @Op(this.op, others + [replacement]);
+		}
+	};
+}
+
+// op is the operation combining the other values with the replacement of the matched value (usually the same operation as the one for which the rule is defined)
+// calcCacheVal is a function taking a single expression as input. It should return a cache value for comparing with the cache values of the other parameters in params. Return `om` if you want to ignore said expression. If there are two or more expression with the same cache value, the rule applies.
+// replace is a function taking the list of expressions, that were matched as same with calcCacheVal. It should return an expression to use in their stead. If all expressions matched it, the replacement will be returned directly. Otherwise it will be connected with the other expression using the operator from `op`.
+cachedExprRule := closure(op, calcCacheVal, replace) {
+	r := cachedExprRuleClass(op, calcCacheVal, replace);
+	return [params |=> r.test(params), params |=> r.eval(params)];
+};
+
+someSameExprsRule := procedure(op, replace) {
+	return cachedExprRule(op, p |-> p, replace);
 };
 
 neutralElRule := procedure(op, e) {
 	return [
 		params |=> exists (p in params | fct(p) == "Number" && args(p)[1] == e),
-		closure(params, prec, rec) {
+		closure(params) {
 			params := [ p : p in params | fct(p) != "Number" || args(p)[1] != e ];
 			if (#params == 1) {
 				return params[1];
 			} else {
-				return @Op(op, params, prec);
+				return @Op(op, params);
 			}
 		}
+	];
+};
+
+nullElRule := procedure(op, null, res) {
+	return [
+		params |=> exists (p in params | fct(p) == "Number" && args(p)[1] == null),
+		params |=> res
 	];
 };
 
 checkArityRule := procedure(op, arity) {
 	return [
 		params |=> #params != arity,
-		[params, rec] |=> abort("$op$ exprects $arity$ argument(s), but received $#params$ argument(s).")
+		params |=> abort("$op$ exprects $arity$ argument(s), but received $#params$ argument(s).")
 	];
 };
 
 defaultRules := procedure() {
 	rules := {};
 	r := [
+		["**", [
+			nullElRule("**", 0, @Number(1)),
+			someNumRule("**", [a, b] |-> a ** b, true),
+			neutralElRule("**", 1),
+			[
+				params |-> #params > 2,
+				params |-> @Op("**", [params[1], @Op("*", params[2..])])
+			]
+		]],
 		["+", [
-			allNumRule([a, b] |-> a + b),
 			someNumRule("+", [a, b] |-> a + b),
+			someSameExprsRule("+", sames |-> @Op("*", [@Number(#sames), sames[1]])),
 			neutralElRule("+", 0)
 		]],
 		["*", [
-			allNumRule([a, b] |-> a * b),
+			nullElRule("*", 0, @Number(0)),
 			someNumRule("*", [a, b] |-> a * b),
-			[
-				params |-> exists (p in params | fct(p) == "Number" && args(p)[1] == 0),
-				[params, prec, rec] |-> @Number(0)
-			],
-			neutralElRule("*", 1)
+			someSameExprsRule("*", sames |-> @Op("**", [sames[1], @Number(#sames)])),
+			neutralElRule("*", 1),
+			cachedExprRule("*", procedure(p) {
+				match(p) {
+					case @Op(op, params):
+						if (op == "**") {
+							return params[1];
+						} else {
+							return om;
+						}
+					case @Func(f, params):
+						return om;
+					case @Name(x):
+						return x;
+					case @Number(x):
+						return x;
+				}
+			}, procedure(sames) {
+				// whether "**" operation, name or number, the base is always given by the first argument
+				base := args(sames[1])[1];
+				exps := [];
+				for (x in sames) {
+					if (fct(x) == "Op") {
+						l := args(x)[2..];
+						if (#l == 1) {
+							exps += l;
+						} else {
+							exps += [@Op("*", l)];
+						}
+					} else {
+						exps += [@Number(1)];
+					}
+				}
+				return @Op("**", [base, @Op("+", exps)]);
+			})
 		]],
 		["-", [
 			allNumRule([a, b] |-> a - b),
@@ -144,22 +245,22 @@ defaultRules := procedure() {
 		["/", [
 			[
 				params |-> exists (p in params[2..] | fct(p) == "Number" && args(p)[1] == 0),
-				[params, prec, rec] |-> abort("Division by 0,")
+				params |-> abort("Division by 0,")
 			],
 			[
 				params |-> fct(params[1]) == "Number" && args(params[1])[1] == 0,
-				[params, prec, rec] |-> @Number(0)
+				params |-> @Number(0)
 			],
 			allNumRule([a, b] |-> a / b),
 			someNumAfterFirstRule("/", [a, b] |-> a * b),
 			[
 				params |-> exists (p in params[2..] | fct(p) == "Number" && args(p)[1] == 1),
-				procedure(params, prec, rec) {
+				procedure(params) {
 					den := [ p : p in params[2..] | fct(p) != "Number" || args(p)[1] != 1 ];
 					if (den == []) {
 						return params[1];
 					} else {
-						return @Op("/", [params[1]] + den, prec);
+						return @Op("/", [params[1]] + den);
 					}
 				}
 			]
@@ -168,42 +269,68 @@ defaultRules := procedure() {
 			checkArityRule("diff", 2),
 			[
 				params |-> fct(params[1]) == "Number",
-				[params, rec] |-> @Number(0)
+				params |-> @Number(0)
 			],
 			[
 				params |-> fct(params[1]) == "Name" && params[1] == params[2],
-				[params, rec] |-> @Number(1)
+				params |-> @Number(1)
 			],
 			[
 				params |-> fct(params[1]) == "Name",
-				[params, rec] |-> @Number(0)
+				params |-> @Number(0)
 			],
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "+",
-				procedure(params, rw rec) {
-					rec := true;
-					sym := params[2];
-					return @Op("+", [ @Func("diff", [x, sym]) : x in args(params[1])[2] ], om);
-				}
+				params |-> @Op("+", [ @Func("diff", [x, params[2]]) : x in args(params[1])[2] ])
 			],
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "-",
-				procedure(params, rw rec) {
-					rec := true;
+				params |-> @Op("-", [ @Func("diff", [x, params[2]]) : x in args(params[1])[2] ])
+			],
+			[
+				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "**",
+				procedure(params) {
 					sym := params[2];
-					return @Op("-", [ @Func("diff", [x, sym]) : x in args(params[1])[2] ], om);
+					opTerm := params[1];
+					base := args(opTerm)[2][1];
+					exps := args(opTerm)[2][2..];
+					if (base == sym) {
+						// TODO:
+						assert(#exps == 1 && fct(exps[1]) == "Number", "Differentiation of exponents that are more complex expressions than single numbers aren't implemented yet.");
+						n := args(exps[1])[1];
+						if (n == 0) {
+							return @Func("diff", @Number(1));
+						} else if (n == 1) {
+							return @Func("diff", sym);
+						} else {
+							return @Op("*", [@Number(n), @Op("**", [sym, @Number(n-1)])]);
+						}
+					} else if (fct(base) == "Op" || fct(base) == "Func") {
+						assert(false, "Differentiation of exponents of operator or function bases are not implemented yet.");
+					} else {
+						return @Number(0);
+					}
 				}
 			],
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "*",
-				procedure(params, rw rec) {
-					rec := true;
+				procedure(params) {
 					sym := params[2];
-					inner := [ @Op("*", [ @Func("diff", [x, sym])] + [y : y in args(params[1])[2] | x != y], prec) : x in args(params[1])[2] ];
-					if (global.DEBUG) {
-						print("inner: $inner$");
-					}
-					return @Op("+", inner, om);
+					opTerm := params[1];
+					opArgs := args(opTerm)[2];
+					inner := [ @Op("*", [@Func("diff", [opArgs[i], sym])] + [opArgs[j] : j in {1..#opArgs} | i != j]) : i in {1..#opArgs} ];
+					return @Op("+", inner);
+				}
+			],
+			[
+				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "/",
+				procedure(params) {
+					sym := params[2];
+					opTerm := params[1];
+					opArgs := args(opTerm)[2];
+					inner := [ @Op("*", [@Func("diff", [opArgs[i], sym])] + [opArgs[j] : j in {1..#opArgs} | i != j]) : i in {1..#opArgs} ];
+					dens := [ @Op("*", [x, x]) : x in opArgs[2..] ];
+					return @Op("/", [@Op("-", inner)] + dens);
 				}
 			]
 		]]
@@ -230,49 +357,39 @@ eval := procedure(expr, rules) {
 			return expr;
 		case @Func(f, params):
 			if (f in domain(rules)) {
-				params := [ eval(p, rules) : p in params ];
 				if (global.DEBUG) {
-					print("params: $params$");
+					print("func: $f$ - params: $params$");
 				}
+				params := [ eval(p, rules) : p in params ];
 				for (r in rules[f]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];
 					e := r[2];
 					if (t(params)) {
-						rec := false;
-						res := e(params, rec);
-						if (rec) {
-							return eval(res, rules);
-						} else {
-							return res;
-						}
+						res := e(params);
+						return eval(res, rules);
 					}
 				}
 				return @Func(op, params);
 			} else {
 				abort("Error at eval($expr$) - Operation not found in rules.");
 			}
-		case @Op(op, params, prec):
+		case @Op(op, params):
 			if (op in domain(rules)) {
-				params := [ eval(p, rules) : p in params ];
 				if (global.DEBUG) {
-					print("params: $params$");
+					print("op: $op$ - params: $params$");
 				}
+				params := [ eval(p, rules) : p in params ];
 				for (r in rules[op]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];
 					e := r[2];
 					if (t(params)) {
-						rec := false;
-						res := e(params, prec, rec);
-						if (rec) {
-							return eval(res, rules);
-						} else {
-							return res;
-						}
+						res := e(params);
+						return eval(res, rules);
 					}
 				}
-				return @Op(op, params, prec);
+				return @Op(op, params);
 			} else {
 				abort("Error at eval($expr$) - Operation not found in rules.");
 			}
@@ -373,7 +490,7 @@ parseExprList := procedure(tokens) {
 	}
 };
 
-parseExpr := procedure(tokens, last := om, paranLevel := 0) {
+parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 	if (global.DEBUG) {
 		print("Parsing expression $tokens$ with last: $last$...");
 	}
@@ -387,6 +504,7 @@ parseExpr := procedure(tokens, last := om, paranLevel := 0) {
 	expr := om;
 	token := tokens[1];
 	tokens := tokens[2..];
+	currPrec := om;
 	match(token) {
 		case @TokOp(op):
 			next := parseTerm(tokens, false, paranLevel);
@@ -396,24 +514,24 @@ parseExpr := procedure(tokens, last := om, paranLevel := 0) {
 				print("currPrec: $currPrec$");
 			}
 			if (fct(last) == "Op") {
-				[lastOp, params, lastPrec] := args(last);
+				[lastOp, params] := args(last);
 				assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
 
 				if (op == lastOp) {
 					if (isOpRightAssoc(op)) {
-						expr := @Op(op, [next] + params, currPrec);
+						expr := @Op(op, [next] + params);
 					} else {
-						expr := @Op(op, params + [next], currPrec);
+						expr := @Op(op, params + [next]);
 					}
 				} else {
 					if (currPrec > lastPrec) {
-						expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next], lastPrec)], currPrec);
+						expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])]);
 					} else {
-						expr := @Op(op, [last, next], currPrec);
+						expr := @Op(op, [last, next]);
 					}
 				}
 			} else {
-				expr := @Op(op, [last, next], currPrec);
+				expr := @Op(op, [last, next]);
 			}
 		default:
 			expr := parseTerm(tokens, false, paranLevel);
@@ -421,7 +539,7 @@ parseExpr := procedure(tokens, last := om, paranLevel := 0) {
 	if (global.DEBUG) {
 		print("Parsing done - Result: $expr$");
 	}
-	return parseExpr(tokens, expr);
+	return parseExpr(tokens, expr, currPrec, paranLevel);
 };
 
 parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
@@ -433,7 +551,7 @@ parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
 		case @TokNum(num):
 			tokens := tokens[2..];
 			if (rec) {
-				return parseExpr(tokens, @Number(num), paranLevel);
+				return parseExpr(tokens, @Number(num), om, paranLevel);
 			} else {
 				return @Number(num);
 			}
@@ -449,14 +567,14 @@ parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
 				tokens := tokens[idx+2..];
 				params := parseExprList(innerArgs);
 				if (rec) {
-					return parseExpr(tokens, @Func(name, params), paranLevel);
+					return parseExpr(tokens, @Func(name, params), om, paranLevel);
 				} else {
 					return @Func(name, params);
 				}
 			} else {
 				tokens := tokens[2..];
 				if (rec) {
-					return parseExpr(tokens, @Name(name), paranLevel);
+					return parseExpr(tokens, @Name(name), om, paranLevel);
 				} else {
 					return @Name(name);
 				}
@@ -464,10 +582,14 @@ parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
 		case @TokParanOpen():
 			tokens := tokens[2..];
 			idx := idxOfClosedParan(tokens);
-			expr := parseExpr(tokens[..idx-1], om, paranLevel + 1);
+			expr := parseExpr(tokens[..idx-1], om, om, paranLevel + 1);
+			lastPrec := om;
+			if (fct(expr) == "Op") {
+				lastPrec := getOpPrec(args(expr)[1]) + getMaxPrec() * (paranLevel + 1);
+			}
 			tokens := tokens[idx+1..];
 			if (rec) {
-				return parseExpr(tokens, expr, paranLevel);
+				return parseExpr(tokens, expr, lastPrec, paranLevel);
 			} else {
 				return expr;
 			}
@@ -514,10 +636,11 @@ stringify := procedure(expr, outsidePrec := om) {
 			params := [ stringify(p) : p in params ];
 			params := join(params);
 			return "$f$($params$)";
-		case @Op(op, params, prec):
+		case @Op(op, params):
+			prec := getOpPrec(op);
 			params := [ stringify(p, prec) : p in params ];
 			res := join(params, " $op$ ");
-			if (outsidePrec != om && prec > outsidePrec) {
+			if (isInteger(outsidePrec) && outsidePrec > prec) {
 				return "($res$)";
 			} else {
 				return res;
@@ -547,5 +670,8 @@ print(evalStr("a + 0 * b - 6 - 3", rules));
 print(evalStr("(a + 7) * 34", rules));
 print(evalStr("diff(a, a)", rules));
 print(evalStr("diff(diff(x * x * y, x), y)", rules));
+print(evalStr("diff(f / g / h, f)", rules));
+print(evalStr("diff(x * x, x)", rules));
+print(evalStr("(x * (7 + 8 / x)) - diff(7 * x * x * x, x)", rules));
 // print(evalStr("diff(sin(cos(x)), x)", rules));
 // print(defaultRules());
