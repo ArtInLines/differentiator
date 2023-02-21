@@ -18,39 +18,6 @@ addOpRules := procedure(rw rules, op, newRules) {
 	return rules;
 };
 
-allNumRule := procedure(reduceOp, reversed := false) {
-	return [
-		params |-> forall (p in params | fct(p) == "Number"),
-		params |=> @Number(reduceFromFirst([ args(p)[1] : p in params ], reduceOp, reversed))
-	];
-};
-
-someNumRule := procedure(op, reduceOp, reversed := false) {
-	return [
-		params |-> some(params, p |-> fct(p) == "Number"),
-		closure(params) {
-			[ nums, others ] := splitListInTwo(params, p |-> fct(p) == "Number");
-			n := reduceFromFirst([ args(n)[1] : n in nums ], reduceOp, reversed);
-			if (others == []) {
-				return @Number(n);
-			} else {
-				return @Op(op, others + [@Number(n)]);
-			}
-		}
-	];
-};
-
-someNumAfterFirstRule := procedure(op, reduceOp) {
-	return [
-		params |-> some(params[2..], p |-> fct(p) == "Number"),
-		closure(params) {
-			[ nums, others ] := splitListInTwo(params[2..], p |-> fct(p) == "Number");
-			n := reduceFromFirst([ args(n)[1] : n in nums ], reduceOp);
-			return @Op(op, [params[1]] + others + [@Number(n)]);
-		}
-	];
-};
-
 class cachedExprRuleClass(op, calcCacheVal, replace) {
 	op := op;
 	calcCacheVal := calcCacheVal;
@@ -94,11 +61,52 @@ someSameExprsRule := procedure(op, replace) {
 	return cachedExprRule(op, p |-> p, replace);
 };
 
-neutralElRule := procedure(op, e) {
+allNumRule := procedure(reduceOp, reversed := false) {
 	return [
-		params |=> exists (p in params | fct(p) == "Number" && args(p)[1] == e),
+		params |-> forall (p in params | fct(p) == "Number"),
+		params |=> @Number(reduceFromFirst([ args(p)[1] : p in params ], reduceOp, reversed))
+	];
+};
+
+// Assumes the operation to be commutative (at least for elements after the firstN)
+someNumRule := procedure(op, reduceOp, reversed := false, skipFirstN := 0) {
+	return [
+		params |=> some(params[1 + skipFirstN..], p |-> fct(p) == "Number"),
 		closure(params) {
-			params := [ p : p in params | fct(p) != "Number" || args(p)[1] != e ];
+			[ nums, others ] := splitListInTwo(params[1 + skipFirstN..], p |-> fct(p) == "Number");
+			others := params[1..skipFirstN] + others;
+			n := reduceFromFirst([ args(n)[1] : n in nums ], reduceOp, reversed);
+			if (others == []) {
+				return @Number(n);
+			} else {
+				return @Op(op, others + [@Number(n)]);
+			}
+		}
+	];
+};
+
+associativeRule := procedure(op, termFct := "Op", skipFirstN := 0) {
+	return [
+		params |=> exists (p in params[1 + skipFirstN..] | fct(p) == termFct && args(p)[1] == op),
+		closure(params) {
+			res := params[1..skipFirstN];
+			for (p in params[1 + skipFirstN..]) {
+				if (fct(p) == termFct && args(p)[1] == op) {
+					res += args(p)[2];
+				} else {
+					res += [p];
+				}
+			}
+			return @Op(op, res);
+		}
+	];
+};
+
+neutralElRule := procedure(op, e, skipFirstN := 0) {
+	return [
+		params |=> exists (p in params[1 + skipFirstN..] | fct(p) == "Number" && args(p)[1] == e),
+		closure(params) {
+			params := params[1..skipFirstN] + [ p : p in params[1 + skipFirstN..] | fct(p) != "Number" || args(p)[1] != e ];
 			if (#params == 1) {
 				return params[1];
 			} else {
@@ -108,23 +116,9 @@ neutralElRule := procedure(op, e) {
 	];
 };
 
-neutralElAfterFirstRule := procedure(op, e) {
+nullElRule := procedure(op, null, res, skipFirstN := 0) {
 	return [
-		params |=> exists (p in params[2..] | fct(p) == "Number" && args(p)[1] == e),
-		closure(params) {
-			remaining := [ p : p in params[2..] | fct(p) != "Number" || args(p)[1] != e ];
-			if (#remaining == 0) {
-				return params[1];
-			} else {
-				return @Op(op, [params[1]] + remaining);
-			}
-		}
-	];
-};
-
-nullElRule := procedure(op, null, res) {
-	return [
-		params |=> exists (p in params | fct(p) == "Number" && args(p)[1] == null),
+		params |=> exists (p in params[1 + skipFirstN..] | fct(p) == "Number" && args(p)[1] == null),
 		params |=> res
 	];
 };
@@ -193,6 +187,7 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 		]],
 		["+", [
 			checkArityRule("+", 2, 1),
+			associativeRule("+", "Op"),
 			someNumRule("+", [a, b] |-> a + b),
 			someSameExprsRule("+", sames |-> @Op("*", [@Number(#sames), sames[1]])),
 			neutralElRule("+", 0)
@@ -200,6 +195,8 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 		["*", [
 			// Must have at least 2 operands
 			checkArityRule("*", 2, 1),
+			// a * (b * c) = (a * b) * c = a * b * c
+			associativeRule("*", "Op"),
 			// 0 * a == 0
 			nullElRule("*", 0, @Number(0)),
 			// calculate number operands
@@ -262,9 +259,10 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 				params |-> @Op("-", [@Number(0)] + params)
 			],
 			checkArityRule("-", 2, 1),
+			associativeRule("-", "Op", 1),
 			allNumRule([a, b] |-> a - b),
-			someNumAfterFirstRule("-", [a, b] |-> a + b),
-			neutralElAfterFirstRule("-", 0)
+			someNumRule("-", [a, b] |-> a + b, false, 1),
+			neutralElRule("-", 0, 1)
 		]],
 		["/", [
 			checkArityRule("/", 2, 1),
@@ -276,9 +274,10 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 				params |-> fct(params[1]) == "Number" && args(params[1])[1] == 0,
 				params |-> @Number(0)
 			],
+			associativeRule("/", "Op", 1),
 			allNumRule([a, b] |-> a / b),
-			someNumAfterFirstRule("/", [a, b] |-> a * b),
-			neutralElAfterFirstRule("/", 1)
+			someNumRule("/", [a, b] |-> a * b, false, 1),
+			neutralElRule("/", 1, 1)
 		]],
 		["diff", [
 			checkArityRule("diff", 2),

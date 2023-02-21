@@ -51,11 +51,6 @@ eval := procedure(expr, rules := global.rules) {
 					print("op: $op$ - params: $params$");
 				}
 				params := [ eval(p, rules) : p in params ];
-				[ sameOps, params ] := splitListInTwo(params, p |=> fct(p) == "Op" && args(p)[1] == op);
-				for (p in sameOps) {
-					params += args(p)[2];
-				}
-
 				for (r in rules[op]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];

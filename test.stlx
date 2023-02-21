@@ -1,5 +1,6 @@
 load("diff.stlx");
 
+global.DEBUG := false;
 evalStr([
 	"x + 0",
 	"x * 0",
@@ -15,5 +16,6 @@ evalStr([
 	"diff(sin(x) * x^2, x) * cos(x)",
 	"a^(x^y*b)",
 	"-(-1)",
-	"-(-x)"
+	"-(-x)",
+	"3 * x + x"
 ]);
