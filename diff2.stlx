@@ -240,14 +240,14 @@ makeDiffFuncRules := procedure() {
 
 makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 	return makeRules([
-		["**", [
-			checkArityRule("**", 2, 1),
-			nullElRule("**", 0, @Number(1)),
-			someNumRule("**", [a, b] |-> a ** b, true),
-			neutralElRule("**", 1),
+		["^", [
+			checkArityRule("^", 2, 1),
+			nullElRule("^", 0, @Number(1)),
+			someNumRule("^", [a, b] |-> a ** b, true),
+			neutralElRule("^", 1),
 			[
 				params |-> #params > 2,
-				params |-> @Op("**", [params[1], @Op("*", params[2..])])
+				params |-> @Op("^", [params[1], @Op("*", params[2..])])
 			]
 		]],
 		["+", [
@@ -263,15 +263,15 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 			nullElRule("*", 0, @Number(0)),
 			// calculate number operands
 			someNumRule("*", [a, b] |-> a * b),
-			// a * a == a ** 2
-			someSameExprsRule("*", sames |-> @Op("**", [sames[1], @Number(#sames)])),
+			// a * a == a ^ 2
+			someSameExprsRule("*", sames |-> @Op("^", [sames[1], @Number(#sames)])),
 			// a * 1 == a
 			neutralElRule("*", 1),
-			// (a ** b) * (a ** c) == a ** (b + c)
+			// (a ^ b) * (a ^ c) == a ^ (b + c)
 			cachedExprRule("*", procedure(p) {
 				match(p) {
 					case @Op(op, params):
-						if (op == "**") {
+						if (op == "^") {
 							return params[1];
 						} else {
 							return om;
@@ -284,7 +284,7 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 						return x;
 				}
 			}, procedure(sames) {
-				// whether "**" operation, name or number, the base is always given by the first argument
+				// whether "^" operation, name or number, the base is always given by the first argument
 				base := args(sames[1])[1];
 				exps := [];
 				for (x in sames) {
@@ -299,7 +299,7 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 						exps += [@Number(1)];
 					}
 				}
-				return @Op("**", [base, @Op("+", exps)]);
+				return @Op("^", [base, @Op("+", exps)]);
 			}),
 			// a * b * (c +/- d)  ==  a * b * c  +/-  a * b * d
 			// TODO: Currently only applies if there is exactly one paranthesized expression - is this wanted?
@@ -362,7 +362,7 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 				params |-> @Op("-", [ @Func("diff", [x, params[2]]) : x in args(params[1])[2] ])
 			],
 			[
-				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "**",
+				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "^",
 				procedure(params) {
 					sym := params[2];
 					opTerm := params[1];
@@ -377,7 +377,7 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 						} else if (n == 1) {
 							return @Func("diff", sym);
 						} else {
-							return @Op("*", [@Number(n), @Op("**", [sym, @Number(n-1)])]);
+							return @Op("*", [@Number(n), @Op("^", [sym, @Number(n-1)])]);
 						}
 					} else if (fct(base) == "Op" || fct(base) == "Func") {
 						assert(false, "Differentiation of exponents of operator or function bases are not implemented yet.");
@@ -519,7 +519,7 @@ getMaxPrec := procedure() {
 
 getOpPrec := procedure(op) {
 	match(op) {
-		case "**":
+		case "^":
 			return 3;
 		case "*":
 			return 2;
@@ -536,7 +536,7 @@ getOpPrec := procedure(op) {
 
 isOpRightAssoc := procedure(op) {
 	match(op) {
-		case "**":
+		case "^":
 			return true;
 		default:
 			return false;
@@ -614,6 +614,9 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 		return last;
 	}
 	if (last == om && fct(tokens[1]) != "TokOp") {
+		if (global.DEBUG) {
+			print("last is om && first token is op: $tokens[1]$");
+		}
 		return parseTerm(tokens, true, paranLevel);
 	}
 
@@ -628,6 +631,7 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 			if (global.DEBUG) {
 				print("next: $next$");
 				print("currPrec: $currPrec$");
+				print("last: $last$");
 			}
 			if (last == om) {
 				expr := @UnaryOp(op, next);
@@ -680,7 +684,7 @@ parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
 				idx := idxOfClosedParan(tokens);
 				assert(fct(tokens[idx]) == "TokParanClosed", "The index returned by idxOfClosedParan should point to a closing parantheses. Returned index is $idx$ and points at $tokens[idx]$");
 				innerArgs := tokens[..idx];
-				tokens := tokens[idx+2..];
+				tokens := tokens[idx+1..];
 				params := parseExprList(innerArgs);
 				if (rec) {
 					return parseExpr(tokens, @Func(name, params), om, paranLevel);
@@ -732,14 +736,14 @@ tokenize := procedure(str) {
 			toks += [ @TokParanClosed() ];
 		regex ',':
 			toks += [ @TokComma() ];
-		regex '\*\*|[+\-\*/]' as [ op ]:
+		regex '[\^+\-\*/]' as [ op ]:
 			toks += [ @TokOp(op) ];
 		default: abort("Error at tokenize($str$) - Can't tokenize $str$ properly");
 	}
 	return toks;
 };
 
-stringify := procedure(expr, outsidePrec := om) {
+stringify := procedure(expr, pretty := true, outsidePrec := om) {
 	if (global.DEBUG) {
 		print("Stringifying $expr$ with outsideOp = $outsideOp$...");
 	}
@@ -749,13 +753,29 @@ stringify := procedure(expr, outsidePrec := om) {
 		case @Number(n):
 			return "$n$";
 		case @Func(f, params):
-			params := [ stringify(p) : p in params ];
+			params := [ stringify(p, pretty) : p in params ];
 			params := join(params);
 			return "$f$($params$)";
 		case @Op(op, params):
 			prec := getOpPrec(op);
-			params := [ stringify(p, prec) : p in params ];
-			res := join(params, " $op$ ");
+			res := om;
+			opStr := " $op$ ";
+			if (op == "^") {
+				opStr := "^";
+			}
+
+			if (pretty && op == "*" && exists (p in params | fct(p) == "Name")) {
+				names := [ stringify(p, pretty) : p in params | fct(p) == "Name" ];
+				nums := [ stringify(p, pretty) : p in params | fct(p) == "Number" ];
+				others := [ stringify(p, pretty) : p in params | fct(p) notin { "Name", "Number" }];
+				assert(#nums <= 1, "A product shouldn't have more than 1 number after being evaluated");
+				res := join(nums + names, "");
+				res := join([res] + others, opStr);
+			} else {
+				params := [ stringify(p, pretty, prec) : p in params ];
+				res := join(params, opStr);
+			}
+
 			if (isInteger(outsidePrec) && outsidePrec > prec) {
 				return "($res$)";
 			} else {
@@ -765,7 +785,7 @@ stringify := procedure(expr, outsidePrec := om) {
 	}
 };
 
-evalStr := procedure(strs, rules, includeBefore := true, toPrint := true) {
+evalStr := procedure(strs, rules, pretty := true, includeBefore := true, toPrint := true) {
 	pad := 0;
 	if (isList(strs)) {
 		lengths := [#s : s in strs];
@@ -781,7 +801,7 @@ evalStr := procedure(strs, rules, includeBefore := true, toPrint := true) {
 		tokens := tokenize(s);
 		expr := parse(tokens);
 		res := eval(expr, rules);
-		outStr := stringify(res);
+		outStr := stringify(res, pretty);
 
 		if (includeBefore) {
 			padding := '';
@@ -802,16 +822,17 @@ evalStr := procedure(strs, rules, includeBefore := true, toPrint := true) {
 
 rules := makeDefaultRules();
 evalStr([
-	"x + 0",
-	"x * 0",
-	"x + 0 * b - 6 - 3",
-	"(x + 7) * 34",
+	// "x + 0",
+	// "x * 0",
+	// "x + 0 * b - 6 - 3",
+	// "(x + 7) * 34",
 	// "diff(a, a)",
 	// "diff(diff(x * x * y, x), y)",
 	// "diff(f / g / h, f)",
 	// "diff(x * x, x)",
 	// "(x * (7 + 8 / x)) - diff(7 * x * x * x, x)",
 	// "diff(diff(cos(sin(x)), x), x)",
-	"-6 * (-3) * x",
-	"diff((x ** 2) + sin(x), x)"
-], rules);
+	// "-6 * (-3) * x",
+	// "diff(sin(x) * x^2, x) * cos(x)"
+	"cos(x) * 2*x * cos(x)"
+], rules, false);
