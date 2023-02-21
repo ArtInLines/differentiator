@@ -13,5 +13,7 @@ evalStr([
 	"diff(diff(cos(sin(x)), x), x)",
 	"-6 * (-3) * x",
 	"diff(sin(x) * x^2, x) * cos(x)",
-	"a^(x^y*b)"
+	"a^(x^y*b)",
+	"-(-1)",
+	"-(-x)"
 ]);
