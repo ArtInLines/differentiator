@@ -1,353 +1,404 @@
-// Terms:
-// @Number(n) where n is some number
-// @Symbol(s) where s is some string
-// @Expr(op, ..args) where op is the string of an accepted operator (see below) and where args is a variable number of arguments, each of which is either @Number, @Symbol or @Expr
-//
+load("util.stlx");
+load("rules.stlx");
 
-// Allowed Operators:
-// '+' -> Addition
-// '-' -> Subtraction or Negation if only one argument was given
-// '*' -> Multiplication
-// '/' -> Division
-// '\' -> Integer Division
-// '%' -> Modulo
-// '**' -> Exponentiation
-// 'diff' -> Differentiation
-	// 1. arg - @Number, @Symbol, @Expr - Expression to differentiate
-	// 2. arg - @Symbol - Symbol to differentiate by. All other symbols will be treated as constants
-// "int" -> Integration
-	// 1. arg - @Number, @Symbol, @Expr - Start value of the integration; asserted to not be higher than the end value
-	// 2. arg - @Number, @Symbol, @Expr - End value of the integration; asserted to not be lower than the start value
-	// 3. arg - @Number, @Symbol, @Expr - Expression to integrate
-	// 4. arg - @Symbol - Symbol to integrate by. All other symbols will be treated as constants
-// 'sin' -> Sine of value
-// 'cos' -> Cosine of value
 
-operator_precedence := procedure(op) {
+class global() {
+	static {
+		rules := makeDefaultRules();
+		DEBUG := false;
+	}
+}
+
+
+eval := procedure(expr, rules := global.rules) {
+	if (isString(expr)) {
+		expr := parse(expr);
+	}
+	if (global.DEBUG) {
+		print("Evaluating $expr$...");
+	}
+	match(expr) {
+		case @Number(n):
+			return expr;
+		case @Name(s):
+			return expr;
+		case @Func(f, params):
+			if (f in domain(rules)) {
+				if (global.DEBUG) {
+					print("func: $f$ - params: $params$");
+				}
+				params := [ eval(p, rules) : p in params ];
+				for (r in rules[f]) {
+					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
+					t := r[1];
+					e := r[2];
+					if (t(params)) {
+						res := e(params);
+						if (global.DEBUG) {
+							print("Applied rule: $r$");
+							print("Result: $res$");
+						}
+						return eval(res, rules);
+					}
+				}
+				return @Func(f, params);
+			} else {
+				abort("Error at eval($expr$) - Function not found in rules.");
+			}
+		case @Op(op, params):
+			if (op in domain(rules)) {
+				if (global.DEBUG) {
+					print("op: $op$ - params: $params$");
+				}
+				params := [ eval(p, rules) : p in params ];
+				[ sameOps, params ] := splitListInTwo(params, p |=> fct(p) == "Op" && args(p)[1] == op);
+				for (p in sameOps) {
+					params += args(p)[2];
+				}
+
+				for (r in rules[op]) {
+					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
+					t := r[1];
+					e := r[2];
+					if (t(params)) {
+						res := e(params);
+						if (global.DEBUG) {
+							print("Applied rule: $r$");
+							print("Result: $res$");
+						}
+						return eval(res, rules);
+					}
+				}
+
+				if (global.DEBUG) {
+					print("No applicable rule - returning $@Op(op, params)$");
+				}
+				return @Op(op, params);
+			} else {
+				abort("Error at eval($expr$) - Operation not found in rules.");
+			}
+		case @UnaryOp(op, param):
+			if (op in domain(rules)) {
+				if (global.DEBUG) {
+					print("unaryOp: $op$ - param: $param$");
+				}
+				params := [eval(param, rules)];
+				for (r in rules[op]) {
+					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
+					t := r[1];
+					e := r[2];
+					if (t(params)) {
+						res := e(params);
+						if (global.DEBUG) {
+							print("Applied rule: $r$");
+							print("Result: $res$");
+						}
+						return eval(res, rules);
+					}
+				}
+				return @UnaryOp(op, params);
+			} else {
+				abort("Error at eval($expr$) - Unary Operation not found in rules.");
+			}
+		default: abort("Error at eval($expr$) - Unknown Expression.");
+	}
+};
+
+getMaxPrec := procedure() {
+	return 3;
+};
+
+getOpPrec := procedure(op) {
 	match(op) {
-		case "+":
-			return 1;
-		case "-":
-			return 1;
+		case "^":
+			return 3;
 		case "*":
 			return 2;
 		case "/":
 			return 2;
-		default: abort("Error at operator_precedence($op$)");
-	}
-};
-
-diff := procedure(expr, sym) {
-	match(expr) {
-		case @Number(n):
-			return @Number(0);
-		case @Symbol(x) | x == args(sym)[1]:
-			return @Number(1);
-		case @Symbol(x):
-			return @Number(0);
-		case @Expr("+", a, b):
-			return eval(@Expr("+", diff(a, sym), diff(b, sym)));
-		case @Expr("-", a, b):
-			return eval(@Expr("-", diff(a, sym), diff(b, sym)));
-		case @Expr("*", a, b):
-			return eval(@Expr("+",
-							@Expr("*", diff(a, sym), b),
-							@Expr("*", a, diff(b, sym))));
-		case @Expr("/", a, b):
-			return eval(@Expr("/",
-							@Expr("-",
-								@Expr("*", diff(a, sym), b),
-								@Expr("*", a, diff(b, sym))),
-							@Expr("*", b, b)));
-		case @Expr("diff", a, b):
-			return diff(diff(a, b), sym);
-		case @Expr("sin", a):
-			return eval(@Expr("cos", a));
-		case @Expr("cos", a):
-			return eval(@Expr("sin", a));
-		default: abort("Error at diff($expr$, $sym$)");
-	}
-};
-
-eval := procedure(t) {
-	if (isString(t)) {
-		t := parse_expr(t);
-	}
-	// print("Evaluating $t$...");
-	match(t) {
-		case @Number(n):
-			return t;
-		case @Symbol(s):
-			return t;
-		case @Expr("-", a):
-			match(a) {
-				case @Number(n):
-					return @Number(-1 * n);
-				default:
-					return a;
-			}
-		case @Expr("+", @Number(0), b):
-			return b;
-		case @Expr("+", a, @Number(0)):
-			return a;
-		case @Expr("*", @Number(1), b):
-			return b;
-		case @Expr("*", a, @Number(1)):
-			return a;
-		case @Expr("*", a, b) | a == @Number(0) || b == @Number(0):
-			return @Number(0);
-		case @Expr("/", a, @Number(0)):
-			abort("Division by Zero.");
-		case @Expr("/", @Number(0), b):
-			return @Number(0);
-		case @Expr("diff", expr, sym):
-			return diff(expr, sym);
-		// case @Expr("int", start, end, expr, sym):
-			// TODO
-		case @Expr("sin", @Number(n)):
-			return @Number(sin(n));
-		case @Expr("cos", @Number(n)):
-			return @Number(cos(n));
-		case @Expr(f, @Symbol(s)) | f == "sin" || f == "cos":
-			return t;
-		case @Expr(f, expr) | (f == "sin" || f == "cos") && fct(expr) == "Expr":
-			expr := eval(expr);
-			if (fct(expr) == "Expr") {
-				return makeTerm("Expr", [f, expr]);
-			} else {
-				return eval(@Expr(f, expr));
-			}
-		case t | fct(t) == "Expr":
-			op := args(t)[1];
-			argz := args(t)[2..];
-			argz := [ eval(a) : a in argz ];
-
-			if (forall (a in argz | fct(a) == "Number")) {
-				match(op) {
-					case "+":
-						return @Number(argz[1] + argz[2]);
-					case "-":
-						return @Number(argz[1] - argz[2]);
-					case "*":
-						return @Number(argz[1] * argz[2]);
-					case "/":
-						return @Number(argz[1] / argz[2]);
-					case "sin":
-						return @Number(sin(argz[1]));
-					case "cos":
-						return @Number(cos(argz[1]));
-					default: abort("Error at eval($t$)");
-				}
-			} else {
-				return makeTerm("Expr", [op] + argz);
-			}
-		default: abort("Error at eval($t$)");
-	}
-};
-
-tokenize := procedure(str) {
-	tokens := [];
-	scan (str) {
-		regex '\s+': // Skip starting whitespace
-		regex 'diff':
-			tokens += [@Func("diff")];
-		regex 'sin':
-			tokens += [@Func("sin")];
-		regex 'cos':
-			tokens += [@Func("cos")];
-		regex '0|[1-9][0-9]*' as [ num ]:
-			tokens += [@Number(int(num))];
-		regex '[a-zA-z]' as [ sym ]:
-			tokens += [@Symbol(sym)];
-		regex '[+\-*/]' as [ op ]:
-			tokens += [@Op(op)];
-		regex ',':
-			tokens += [@Comma()];
-		regex '\(':
-			tokens += [@ParanOpen()];
-		regex '\)':
-			tokens += [@ParanClosed()];
-	}
-	return tokens;
-};
-
-
-// Grammar for parsing:
-// expression = term | expression "+" term | expression "-" term
-// term = factor | term "*" factor | term "/" factor
-// factor = number | symbol | "(" + expression + ")" | function + "([arg[, arg]*])"
-
-parse_expression := procedure(tokens, last := om) {
-	// print("Parsing Expression $tokens$...");
-	if (tokens == []) {
-		return last;
-	}
-	if (last == om) {
-		return parse_term(tokens);
-	} else {
-		match (tokens[1]) {
-			case @Op("+"):
-				return @Expr("+", last, parse_term(tokens[2..]));
-			case @Op("-"):
-				return @Expr("-", last, parse_term(tokens[2..]));
-			default:
-				return parse_term(tokens, last);
-		}
-	}
-};
-
-parse_term := procedure(tokens, last := om) {
-	// print("Parsing Term $tokens$...");
-	if (tokens == []) {
-		return om;
-	}
-	if (last == om) {
-		return parse_factor(tokens);
-	} else {
-		match(tokens[1]) {
-			case @Op("*"):
-				return @Expr("*", last, parse_factor(tokens[2..]));
-			case @Op("/"):
-				return @Expr("/", last, parse_factor(tokens[2..]));
-			case @Symbol(s):
-				return @Expr("*", last, tokens[1]);
-			case @Number(n) | fct(last) == "Symbol":
-				return @Expr("*", last, tokens[1]);
-			case @ParanOpen():
-				return @Expr("*", last, parse_factor(tokens));
-			default:
-				abort("Error at parse_term($tokens$, $last$)");
-		}
-	}
-};
-
-parse_factor :=	procedure(tokens) {
-	// print("Parsing Factor $tokens$...");
-	if (tokens == []) {
-		return om;
-	}
-	match(tokens[1]) {
-		case @Number(n):
-			return parse_expression(tokens[2..], tokens[1]);
-		case @Symbol(s):
-			return parse_expression(tokens[2..], tokens[1]);
-		case @Func(f):
-			if (tokens[2] != @ParanOpen()) {
-				abort("Function names need to be followed by parantheses");
-			}
-			args := collect_args(tokens[3..], 1);
-			// print("Collected Args: $args$");
-			match(f) {
-				case "diff":
-					if (#args != 2) {
-						abort("Differentiation needs 2 arguments, first the expression and then the variable to differentiate by.");
-					}
-					if (#args[2] == 1 && fct(args[2][1]) != "Symbol") {
-						abort("The second argument to Differentiation must be a symbol.");
-					}
-					return @Expr("diff", parse_expression(args[1]), args[2][1]);
-				case "sin":
-					if (#args != 1) {
-						abort("sin(x) expects exactly one argument");
-					}
-					return @Expr("sin", parse_expression(args[1]));
-				case "cos":
-					if (#args != 1) {
-						abort("cos(x) expects exactly one argument");
-					}
-					return @Expr("cos", parse_expression(args[1]));
-			}
-		case @ParanOpen():
-			len := #tokens;
-			parans := 1;
-			i := 2;
-			while (true) {
-				if (tokens[i] == @ParanOpen()) {
-					parans += 1;
-				} else if (tokens[i] == @ParanClosed()) {
-					parans -= 1;
-					if (parans == 0) {
-						break;
-					}
-				}
-				i += 1;
-				if (len < i) {
-					abort("Error at parse_factor($tokens$): Unmatched Parantheses.");
-				}
-			}
-			return parse_expression(tokens[i+1..], parse_expression(tokens[2..i-1]));
+		case "+":
+			return 1;
+		case "-":
+			return 1;
 		default:
-			abort("Error at parse_factor($tokens$) - Unexpected Token");
+			abort("Error at getOpPrec($op$) - Unknown operator");
 	}
 };
 
-collect_args := procedure(rw tokens, parans) {
-	// print("Collecting args $tokens$...");
-	og_parans := parans;
-	args := [];
+isOpRightAssoc := procedure(op) {
+	match(op) {
+		case "^":
+			return true;
+		default:
+			return false;
+	}
+};
+
+idxOfClosedParan := procedure(tokens) {
+	if (global.DEBUG) {
+		print("Finding index of closed parantheses $tokens$...");
+	}
+	parans := 1;
 	i := 1;
-	while (true) {
+	while (parans != 0 && i <= #tokens) {
 		match(tokens[i]) {
-			case @ParanOpen():
+			case @TokParanOpen():
 				parans += 1;
-			case @ParanClosed():
+			case @TokParanClosed():
 				parans -= 1;
-				if (parans + 1 == og_parans) {
-					args += [tokens[..i-1]];
-					tokens := tokens[i+1..];
-					break;
-				}
-			case @Comma():
-				if (parans == og_parans) {
-					args += [tokens[..i-1]];
+		}
+		i += 1;
+	}
+
+	if (parans == 0) {
+		return i-1;
+	} else {
+		abort("Error at idxOfClosedParan($tokens$): Unmatched Parantheses.");
+	}
+};
+
+parse := procedure(tokens) {
+	if (isString(tokens)) {
+		tokens := tokenize(tokens);
+	}
+	return parseExpr(tokens);
+};
+
+parseExprList := procedure(tokens) {
+	if (global.DEBUG) {
+		print("Parsing expression-list $tokens$...");
+	}
+
+	exprs := [];
+	parans := 1;
+	i := 1;
+	while (parans != 0 && #tokens >= i) {
+		match(tokens[i]) {
+			case @TokParanOpen():
+				parans += 1;
+			case @TokParanClosed():
+				parans -= 1;
+			case @TokComma():
+				if (parans == 1) {
+					exprs += [tokens[..i-1]];
 					tokens := tokens[i+1..];
 					i := 0;
 				}
 		}
 		i += 1;
-		if (#tokens < i) {
-			abort("Error at collect_args($tokens$): Unmatched Parantheses.");
-		}
 	}
-	return args;
+
+	if (parans == 0) {
+		exprs += [tokens[..-2]];
+		exprs := [ parseExpr(x) : x in exprs ];
+		return exprs;
+	} else {
+		abort("Error at parseExprList($tokens$): Unmatched Parantheses.");
+	}
 };
 
+parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
+	if (global.DEBUG) {
+		print("Parsing expression $tokens$ with last: $last$...");
+	}
+	if (tokens == []) {
+		return last;
+	}
+	if (last == om && fct(tokens[1]) != "TokOp") {
+		if (global.DEBUG) {
+			print("last is om && first token is not op: $tokens[1]$");
+		}
+		return parseTerm(tokens, true, paranLevel);
+	}
 
-parse_expr := procedure(str) {
-	tokens := tokenize(str);
-	return parse_expression(tokens);
+	expr := om;
+	token := tokens[1];
+	tokens := tokens[2..];
+	currPrec := om;
+	match(token) {
+		case @TokOp(op):
+			next := parseTerm(tokens, false, paranLevel);
+			currPrec := getOpPrec(op) + paranLevel * getMaxPrec();
+			if (global.DEBUG) {
+				print("next: $next$");
+				print("currPrec: $currPrec$");
+				print("last: $last$");
+			}
+			if (last == om) {
+				expr := @UnaryOp(op, next);
+			} else if (fct(last) == "Op") {
+				[lastOp, params] := args(last);
+				assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
+
+				if (op == lastOp) {
+					expr := @Op(op, params + [next]);
+				} else if (currPrec > lastPrec) {
+					expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])]);
+				} else {
+					expr := @Op(op, [last, next]);
+				}
+			} else {
+				expr := @Op(op, [last, next]);
+			}
+		default:
+			expr := parseTerm(tokens, false, paranLevel);
+	}
+	if (global.DEBUG) {
+		print("Parsing done - Result: $expr$");
+	}
+	return parseExpr(tokens, expr, currPrec, paranLevel);
 };
 
-stringify_expr := procedure(expr, outsideOp := om) {
-	// print("Stringifying $expr$...");
+parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
+	assert(tokens != [], "parseTerm expects a non-empty list as input");
+	if (global.DEBUG) {
+		print("Parsing term $tokens$ with rec: $rec$...");
+	}
+	match(tokens[1]) {
+		case @TokNum(num):
+			tokens := tokens[2..];
+			if (rec) {
+				return parseExpr(tokens, @Number(num), om, paranLevel);
+			} else {
+				return @Number(num);
+			}
+		case @TokName(name):
+			// Name + ParanOpen + ParanClosed are required for it to be a function-call
+			if (#tokens > 3 && fct(tokens[2]) == "TokParanOpen") {
+				tokens := tokens[3..];
+				idx := idxOfClosedParan(tokens);
+				assert(fct(tokens[idx]) == "TokParanClosed", "The index returned by idxOfClosedParan should point to a closing parantheses. Returned index is $idx$ and points at $tokens[idx]$");
+				innerArgs := tokens[..idx];
+				tokens := tokens[idx+1..];
+				params := parseExprList(innerArgs);
+				if (rec) {
+					return parseExpr(tokens, @Func(name, params), om, paranLevel);
+				} else {
+					return @Func(name, params);
+				}
+			} else {
+				tokens := tokens[2..];
+				if (rec) {
+					return parseExpr(tokens, @Name(name), om, paranLevel);
+				} else {
+					return @Name(name);
+				}
+			}
+		case @TokParanOpen():
+			tokens := tokens[2..];
+			idx := idxOfClosedParan(tokens);
+			expr := parseExpr(tokens[..idx-1], om, om, paranLevel + 1);
+			lastPrec := om;
+			if (fct(expr) == "Op") {
+				lastPrec := getOpPrec(args(expr)[1]) + getMaxPrec() * (paranLevel + 1);
+			}
+			tokens := tokens[idx+1..];
+			if (rec) {
+				return parseExpr(tokens, expr, lastPrec, paranLevel);
+			} else {
+				return expr;
+			}
+		default: abort("Error at parseTerm($tokens$) - Unexpected token");
+	}
+};
+
+tokenize := procedure(str) {
+	if (global.DEBUG) {
+		print("Tokenizing $str$...");
+	}
+	toks := [];
+	scan(str) {
+		regex '\s+': // Skip starting whitespace
+		regex '[a-zA-Z][a-zA-Z_0-9]*' as [ name ]:
+			toks += [ @TokName(name) ];
+		regex '(0|[1-9][0-9]*).[0-9]+' as [ num, _ ]:
+			toks += [ @TokNum(double(num)) ];
+		regex '0|[1-9][0-9]*' as [ num ]:
+			toks += [ @TokNum(int(num)) ];
+		regex '\(':
+			toks += [ @TokParanOpen() ];
+		regex '\)':
+			toks += [ @TokParanClosed() ];
+		regex ',':
+			toks += [ @TokComma() ];
+		regex '[\^+\-\*/]' as [ op ]:
+			toks += [ @TokOp(op) ];
+		default: abort("Error at tokenize($str$) - Can't tokenize $str$ properly");
+	}
+	return toks;
+};
+
+stringify := procedure(expr, pretty := true, outsidePrec := om) {
+	if (global.DEBUG) {
+		print("Stringifying $expr$ with outsideOp = $outsideOp$...");
+	}
 	match(expr) {
+		case @Name(s):
+			return s;
 		case @Number(n):
 			return "$n$";
-		case @Symbol(s):
-			return s;
-		case @Expr(op, a, b):
-			if (outsideOp != om && operator_precedence(outsideOp) > operator_precedence(op)) {
-				return "(" + stringify_expr(a, op) + " " + op + " " + stringify_expr(b, op) + ")";
-			} else {
-				return stringify_expr(a, op) + " " + op + " " + stringify_expr(b, op);
+		case @Func(f, params):
+			params := [ stringify(p, pretty) : p in params ];
+			params := join(params);
+			return "$f$($params$)";
+		case @Op(op, params):
+			prec := getOpPrec(op);
+			res := om;
+			opStr := " $op$ ";
+			if (op == "^") {
+				opStr := "^";
 			}
-		case @Expr(op, a):
-			return op + "(" + stringify_expr(a, om) + ")";
-		default: abort("Error at stringify_expr($expr$, $outsideOp$)");
+
+			if (pretty && op == "*" && exists (p in params | fct(p) == "Name")) {
+				names := [ stringify(p, pretty) : p in params | fct(p) == "Name" ];
+				nums := [ stringify(p, pretty) : p in params | fct(p) == "Number" ];
+				others := [ stringify(p, pretty) : p in params | fct(p) notin { "Name", "Number" }];
+				assert(#nums <= 1, "A product shouldn't have more than 1 number after being evaluated");
+				res := join(nums + names, "");
+				res := join([res] + others, opStr);
+			} else {
+				params := [ stringify(p, pretty, prec) : p in params ];
+				res := join(params, opStr);
+			}
+
+			if (isInteger(outsidePrec) && outsidePrec > prec) {
+				return "($res$)";
+			} else {
+				return res;
+			}
+		default: abort("Error at stringify($expr$, $outsideOp$) - Unexpected expression.");
 	}
 };
 
-evalStr := procedure(str) {
-	return stringify_expr(eval(str));
+evalStr := procedure(strs, rules := global.rules, pretty := true, includeBefore := true, toPrint := true) {
+	pad := 0;
+	if (isList(strs)) {
+		lengths := [#s : s in strs];
+		pad := max(lengths);
+	} else {
+		strs := [strs];
+	}
+
+	outStrs := [];
+	for (s in strs) {
+		// global.DEBUG := true;
+		// global.DEBUG := false;
+		tokens := tokenize(s);
+		expr := parse(tokens);
+		res := eval(expr, rules);
+		outStr := stringify(res, pretty);
+
+		if (includeBefore) {
+			padding := '';
+			if (pad > #s) {
+				padding := ' ' * (pad - #s);
+			}
+			outStr := "$s$$padding$ -->  $outStr$";
+		}
+		if (toPrint) {
+			print(outStr);
+		}
+		outStrs += [outStr];
+	}
+	return outStrs;
 };
-
-// Test:
-// print("Expected: 7/5  -  Received: ", stringify_expr(eval(@Expr("*", @Number(7), @Expr("diff", (@Expr("/", @Symbol("x"), @Number(5))), @Symbol('x'))))));
-// print("Expected: @Expr('*', @Expr('+', @Symbol('a'), @Number(7)), @Number(34))  -  Received: ", eval("(a + 7) * 34"));
-// print("Expected: @Number(12)  -  Received: ", eval("5 + 7"));
-// print("Expected: @Expr('*', @Number(5), @Symbol('x'))  -  Received: ", eval("5x"));
-// print("Expected: @Expr('*', @Number(5), @Expr('+', @Symbol('x'), @Number(1)))  -  Received: ", eval("5(x+1)"));
-
-print(evalStr("(a + 7) * 34"));
-print(evalStr("diff(diff(x * x * y, x), y)"));
-print(evalStr("diff(sin(cos(x)), x)"));
