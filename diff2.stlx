@@ -469,6 +469,11 @@ eval := procedure(expr, rules) {
 					print("op: $op$ - params: $params$");
 				}
 				params := [ eval(p, rules) : p in params ];
+				[ sameOps, params ] := splitListInTwo(params, p |=> fct(p) == "Op" && args(p)[1] == op);
+				for (p in sameOps) {
+					params += args(p)[2];
+				}
+
 				for (r in rules[op]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];
@@ -481,6 +486,10 @@ eval := procedure(expr, rules) {
 						}
 						return eval(res, rules);
 					}
+				}
+
+				if (global.DEBUG) {
+					print("No applicable rule - returning $@Op(op, params)$");
 				}
 				return @Op(op, params);
 			} else {
@@ -615,7 +624,7 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 	}
 	if (last == om && fct(tokens[1]) != "TokOp") {
 		if (global.DEBUG) {
-			print("last is om && first token is op: $tokens[1]$");
+			print("last is om && first token is not op: $tokens[1]$");
 		}
 		return parseTerm(tokens, true, paranLevel);
 	}
@@ -640,17 +649,11 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 				assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
 
 				if (op == lastOp) {
-					if (isOpRightAssoc(op)) {
-						expr := @Op(op, [next] + params);
-					} else {
-						expr := @Op(op, params + [next]);
-					}
+					expr := @Op(op, params + [next]);
+				} else if (currPrec > lastPrec) {
+					expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])]);
 				} else {
-					if (currPrec > lastPrec) {
-						expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])]);
-					} else {
-						expr := @Op(op, [last, next]);
-					}
+					expr := @Op(op, [last, next]);
 				}
 			} else {
 				expr := @Op(op, [last, next]);
@@ -822,17 +825,17 @@ evalStr := procedure(strs, rules, pretty := true, includeBefore := true, toPrint
 
 rules := makeDefaultRules();
 evalStr([
-	// "x + 0",
-	// "x * 0",
-	// "x + 0 * b - 6 - 3",
-	// "(x + 7) * 34",
-	// "diff(a, a)",
-	// "diff(diff(x * x * y, x), y)",
-	// "diff(f / g / h, f)",
-	// "diff(x * x, x)",
-	// "(x * (7 + 8 / x)) - diff(7 * x * x * x, x)",
-	// "diff(diff(cos(sin(x)), x), x)",
-	// "-6 * (-3) * x",
-	// "diff(sin(x) * x^2, x) * cos(x)"
-	"cos(x) * 2*x * cos(x)"
-], rules, false);
+	"x + 0",
+	"x * 0",
+	"x + 0 * b - 6 - 3",
+	"(x + 7) * 34",
+	"diff(a, a)",
+	"diff(diff(x * x * y, x), y)",
+	"diff(f / g / h, f)",
+	"diff(x * x, x)",
+	"(x * (7 + 8 / x)) - diff(7 * x * x * x, x)",
+	"diff(diff(cos(sin(x)), x), x)",
+	"-6 * (-3) * x",
+	"diff(sin(x) * x^2, x) * cos(x)",
+	"a^(x^y*b)"
+], rules, true);
