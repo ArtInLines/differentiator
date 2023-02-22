@@ -216,6 +216,7 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 			currPrec := getOpPrec(op) + paranLevel * getMaxPrec();
 			if (global.DEBUG) {
 				print("next: $next$");
+				print("lastPrec: $lastPrec$");
 				print("currPrec: $currPrec$");
 				print("last: $last$");
 			}
@@ -227,8 +228,9 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 
 				if (op == lastOp) {
 					expr := @Op(op, params + [next]);
-				} else if (currPrec > lastPrec) {
+				} else if (lastPrec < currPrec) {
 					expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])]);
+					currPrec := lastPrec;
 				} else {
 					expr := @Op(op, [last, next]);
 				}
