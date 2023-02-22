@@ -11,9 +11,7 @@ class global() {
 
 
 eval := procedure(expr, rules := global.rules) {
-	if (isString(expr)) {
-		expr := parse(expr);
-	}
+	assert(isTerm(expr), "eval expects 'expr' to be a term, instead received: $expr$");
 	if (global.DEBUG) {
 		print("Evaluating $expr$...");
 	}
@@ -212,6 +210,7 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 	currPrec := om;
 	match(token) {
 		case @TokOp(op):
+			assert(tokens != [], "An operator must be followed by an expression");
 			next := parseTerm(tokens, false, paranLevel);
 			currPrec := getOpPrec(op) + paranLevel * getMaxPrec();
 			if (global.DEBUG) {
@@ -238,7 +237,11 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 				expr := @Op(op, [last, next]);
 			}
 		default:
-			expr := parseTerm(tokens, false, paranLevel);
+			if (global.DEBUG) {
+				print("This place seems to be unreachable.");
+				stop("eval - default case:");
+			}
+			expr := parseTerm([token] + tokens, false, paranLevel);
 	}
 	if (global.DEBUG) {
 		print("Parsing done - Result: $expr$");

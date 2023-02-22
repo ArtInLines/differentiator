@@ -98,3 +98,15 @@ mappedSplitList := procedure(l, f, sublistAmount := om, range := {1..#l}) {
 map := procedure(l, f, range := {1..#l}) {
 	return [ f(l[i], i) : i in range ];
 };
+
+flatten := procedure(l, dim := 1) {
+	match(l) {
+		case []:
+			return [];
+		case [x|r]:
+			if (dim <= 0 || !isList(x)) {
+				x := [x];
+			}
+			return x + flatten(r, dim - 1);
+	}
+};

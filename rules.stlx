@@ -194,7 +194,16 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 			associativeRule("+", "Op"),
 			someNumRule("+", [a, b] |-> a + b),
 			someSameExprsRule("+", sames |-> @Op("*", [@Number(#sames), sames[1]])),
-			neutralElRule("+", 0)
+			neutralElRule("+", 0),
+			[
+				params |-> exists (p in params | fct(p) == "Op" && args(p)[1] == "-"),
+				procedure(params) {
+					[negs, pos] := splitListInTwo(params, p |-> fct(p) == "Op" && args(p)[1] == "-");
+					pos += [ args(p)[2][1] : p in negs ];
+					negs := flatten(map(negs, [p, i] |-> args(p)[2][2..]));
+					return @Op("-", [@Op("+", pos)] + negs);
+				}
+			]
 		]],
 		["*", [
 			// Must have at least 2 operands
@@ -260,10 +269,42 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 		["-", [
 			[
 				params |-> #params == 1,
-				params |-> @Op("-", [@Number(0)] + params)
+				procedure(params) {
+					p := params[1];
+					match(p) {
+						case @Number(n):
+							return @Number(-1 * n);
+						case @UnaryOp(op, arg):
+							assert(arg == "-", "Negation is currently assumed to be the only unary operation");
+							return arg;
+						case @Op("-", args):
+							return @Op("+", [@UnaryOp("-", args[1])] + args[2..]);
+						case @Op("+", args):
+							return @Op("-", [@Number(0)] + args);
+						default:
+							return @Op("-", [@Number(0), p]);
+					}
+				}
 			],
 			checkArityRule("-", 2, 1),
-			associativeRule("-", "Op", 1, firstGroup |-> [@Op("+", firstGroup)]),
+			[
+				params |-> exists (x in params[2..] | fct(x) == "Op" && args(x)[1] in {"-", "+"}),
+				params |-> @Op("+", map(params, procedure(x, i) {
+					if (i != 1 && fct(x) == "Op") {
+						[op, opArgs] := args(x);
+						match (op) {
+							case "-":
+								return @Op("+", [@UnaryOp("-", opArgs[1])] + opArgs[2..]);
+							case "+":
+								return @Op("-", [@Number(0)] + opArgs);
+							default:
+								return @UnaryOp("-", x);
+						}
+					} else {
+						return @UnaryOp("-", x);
+					}
+				}))
+			],
 			allNumRule([a, b] |-> a - b),
 			someNumRule("-", [a, b] |-> a + b, false, 1),
 			neutralElRule("-", 0, 1)
