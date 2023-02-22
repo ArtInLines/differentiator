@@ -325,7 +325,7 @@ tokenize := procedure(str) {
 	return toks;
 };
 
-stringify := procedure(expr, pretty := true, outsidePrec := om) {
+stringify := procedure(expr, pretty := true, outsidePrec := om, isFirstOperand := false) {
 	if (global.DEBUG) {
 		print("Stringifying $expr$ with outsideOp = $outsideOp$...");
 	}
@@ -347,18 +347,24 @@ stringify := procedure(expr, pretty := true, outsidePrec := om) {
 			}
 
 			if (pretty && op == "*" && exists (p in params | fct(p) == "Name")) {
-				names := [ stringify(p, pretty) : p in params | fct(p) == "Name" ];
-				nums := [ stringify(p, pretty) : p in params | fct(p) == "Number" ];
-				others := [ stringify(p, pretty) : p in params | fct(p) notin { "Name", "Number" }];
+				[names, nums, others] := mappedSplitList(params, closure(p, i) {
+					if (fct(p) == "Name") {
+						return [1, stringify(p, pretty)];
+					} else if (fct(p) == "Number") {
+						return [2, stringify(p, pretty)];
+					} else {
+						return [3, stringify(p, pretty, prec, i == 1)];
+					}
+				}, 3);
 				assert(#nums <= 1, "A product shouldn't have more than 1 number after being evaluated");
 				res := join(nums + names, "");
 				res := join([res] + others, opStr);
 			} else {
-				params := [ stringify(p, pretty, prec) : p in params ];
+				params := map(params, [p, i] |=> stringify(p, pretty, prec, i == 1));
 				res := join(params, opStr);
 			}
 
-			if (isInteger(outsidePrec) && outsidePrec > prec) {
+			if (isInteger(outsidePrec) && (outsidePrec > prec || (outsidePrec == prec && !isFirstOperand))) {
 				return "($res$)";
 			} else {
 				return res;

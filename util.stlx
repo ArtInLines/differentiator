@@ -1,3 +1,7 @@
+identity := procedure(x) {
+	return x;
+};
+
 reduceFromFirst := procedure(l, f, rev := false) {
 	assert(l != [], "reduceFromFirst expects a non-empty list as input");
 	if (rev) {
@@ -52,4 +56,45 @@ splitListInTwo := procedure(l, f) {
 		}
 	}
 	return [a, b];
+};
+
+// Splits a list into several sublists
+// f should return a number, determining the sublist for the given element
+// if f returns a negative number, the element will be put into the last sublist.
+splitList := procedure(l, f, sublistAmount) {
+	return mappedSplitList(l, [x, i] |=> [f(x), x], sublistAmount);
+};
+
+// Splits a list into several sublists and maps each element to a new form
+// f receives the current element and its index as input
+// f should return a number and the mapped element, determining the sublist for the given element
+// if f returns a negative number, the element will be put into the last sublist.
+mappedSplitList := procedure(l, f, sublistAmount := om, range := {1..#l}) {
+	res := [];
+	if (isInteger(sublistAmount)) {
+		res := [[]] * sublistAmount;
+	}
+	others := [];
+	for(i in range) {
+		[ i, x ] := f(l[i], i);
+		if (i < 0) {
+			others += [x];
+		}
+		else {
+			if (i > #res) {
+				res += [[]] * (i - #res);
+			}
+			res[i] += [x];
+		}
+	}
+	if (#others > 0) {
+		res += [others];
+	}
+	assert(#res == sublistAmount, "mappedSplitList should return exactly sublistAmount ($sublistAmount$) many sublists, but it instead produced $#res$ sublists.");
+	return res;
+};
+
+// f is applied to each element in the list. f receives the element and its index as arguments
+map := procedure(l, f, range := {1..#l}) {
+	return [ f(l[i], i) : i in range ];
 };
