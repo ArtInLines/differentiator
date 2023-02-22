@@ -85,19 +85,23 @@ someNumRule := procedure(op, reduceOp, reversed := false, skipFirstN := 0) {
 	];
 };
 
-associativeRule := procedure(op, termFct := "Op", skipFirstN := 0) {
+associativeRule := procedure(op, termFct := "Op", skipFirstN := 0, firstGroupTransform := identity, secondGroupTransform := identity) {
 	return [
-		params |=> exists (p in params[1 + skipFirstN..] | fct(p) == termFct && args(p)[1] == op),
+		params |=> exists (p in params[1 + skipFirstN..] | fct(p) == termFct && args(p)[1] == op && #args(p)[2] > skipFirstN),
 		closure(params) {
-			res := params[1..skipFirstN];
+			firstGroup := params[1..skipFirstN];
+			secondGroup := [];
 			for (p in params[1 + skipFirstN..]) {
 				if (fct(p) == termFct && args(p)[1] == op) {
-					res += args(p)[2];
+					firstGroup += args(p)[2][1..skipFirstN];
+					secondGroup += args(p)[2][1 + skipFirstN..];
 				} else {
-					res += [p];
+					secondGroup += [secondGroupTransform(p)];
 				}
 			}
-			return @Op(op, res);
+			firstGroup := firstGroupTransform(firstGroup);
+			secondGroup := secondGroupTransform(secondGroup);
+			return @Op(op, firstGroup + secondGroup);
 		}
 	];
 };
@@ -259,7 +263,7 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 				params |-> @Op("-", [@Number(0)] + params)
 			],
 			checkArityRule("-", 2, 1),
-			associativeRule("-", "Op", 1),
+			associativeRule("-", "Op", 1, firstGroup |-> [@Op("+", firstGroup)]),
 			allNumRule([a, b] |-> a - b),
 			someNumRule("-", [a, b] |-> a + b, false, 1),
 			neutralElRule("-", 0, 1)
@@ -274,7 +278,11 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 				params |-> fct(params[1]) == "Number" && args(params[1])[1] == 0,
 				params |-> @Number(0)
 			],
-			associativeRule("/", "Op", 1),
+			associativeRule("/", "Op", 1, firstGroup |-> [@Op("*", firstGroup)]),
+			[
+				params |-> #params > 2,
+				params |-> @Op("/", [params[1], @Op("*", params[2..])])
+			],
 			allNumRule([a, b] |-> a / b),
 			someNumRule("/", [a, b] |-> a * b, false, 1),
 			neutralElRule("/", 1, 1)
