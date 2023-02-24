@@ -85,24 +85,16 @@ someNumRule := procedure(op, reduceOp, reversed := false, skipFirstN := 0) {
 	];
 };
 
-associativeRule := procedure(op, termFct := "Op", skipFirstN := 0, firstGroupTransform := identity, secondGroupTransform := identity) {
+associativeRule := procedure(op, termFct := "Op") {
 	return [
-		params |=> exists (p in params[1 + skipFirstN..] | fct(p) == termFct && args(p)[1] == op && #args(p)[2] > skipFirstN),
-		closure(params) {
-			firstGroup := params[1..skipFirstN];
-			secondGroup := [];
-			for (p in params[1 + skipFirstN..]) {
-				if (fct(p) == termFct && args(p)[1] == op) {
-					firstGroup += args(p)[2][1..skipFirstN];
-					secondGroup += args(p)[2][1 + skipFirstN..];
-				} else {
-					secondGroup += [secondGroupTransform(p)];
-				}
+		params |=> exists (p in params | fct(p) == termFct && args(p)[1] == op),
+		params |=> makeTerm(termFct, [op, flatten(map(params, closure(p, i) {
+			if (fct(p) == termFct && args(p)[1] == op) {
+				return args(p)[2..];
+			} else {
+				return p;
 			}
-			firstGroup := firstGroupTransform(firstGroup);
-			secondGroup := secondGroupTransform(secondGroup);
-			return @Op(op, firstGroup + secondGroup);
-		}
+		}))])
 	];
 };
 
@@ -117,13 +109,6 @@ neutralElRule := procedure(op, e, skipFirstN := 0) {
 				return @Op(op, params);
 			}
 		}
-	];
-};
-
-nullElRule := procedure(op, null, res, skipFirstN := 0) {
-	return [
-		params |=> exists (p in params[1 + skipFirstN..] | fct(p) == "Number" && args(p)[1] == null),
-		params |=> res
 	];
 };
 
@@ -157,6 +142,61 @@ chainRule := procedure(f, innerRules) {
 	];
 };
 
+// Assumes that invOfNum(invOfNum(a)) == a
+invSomeNumRule := procedure(op, invOp, reduceOp, invOfNum) {
+	testExpr := p |=> fct(p) == "Number" || (fct(p) == "Op" && args(p)[1] in {op, invOp} && exists (x in args(p)[2] | testExpr(x)));
+	test := params |=> testExpr(params[1]) && testExpr(params[2]);
+
+	splitExpr := closure(p, op, invOp) {
+		match(p) {
+			case @Number(n):
+				return [n, @Null()];
+			case @Op(op, xs):
+				assert(#xs == 2, "This rule assumes that the operation $op$ requires exactly 2 operands");
+				[[a, b], [c, d]] := [splitExpr(xs[1], op, invOp), splitExpr(xs[2], invOp, op)];
+				if (a != @Null() && b == @Null()) {
+					if (c != @Null()) {
+						return [reduceOp(a, c), d];
+					} else {
+						return [a, d];
+					}
+				} else if (a == @Null() && b != @Null()) {
+					if (d == @Null()) {
+						return [invOfNum(c), b];
+					} else {
+						return [invOfNum(c), @Op(op, [b, d])];
+					}
+				} else if (a != @Null() && b != @Null()) {
+					if (c == @Null() && d != @Null()) {
+						return [a, @Op(op, [b, d])];
+					} else if (c != @Null() && d == @Null()) {
+						return [reduceOp(a, c), b];
+					} else if (c != @Null() && d != @Null()) {
+						return [reduceOp(a, c), @Op(op, [b, d])];
+					} else {
+						assert(false, "Unreachable. For debugging: a=$a$, b=$b$, c=$c$, d=$d$");
+					}
+				} else {
+					assert(false, "Unreachable. For debugging: a=$a$, b=$b$, c=$c$, d=$d$");
+				}
+			case @Op(invOp, xs):
+				return splitExpr(@Op(op, xs), invOp, op);
+			default:
+				return [@Null(), p];
+		}
+	};
+	eval := closure(params) {
+		assert(#params == 2, "This rule assumes that the operation $op$ requires exactly 2 operands");
+		[n, x] := splitExpr(@Op(op, params), op, invOp);
+		if (x == @Null()) {
+			return @Number(n);
+		} else {
+			return @Op(invOp, [x, @Number(n)]);
+		}
+	};
+	return [test, eval];
+};
+
 makeRules := procedure(rules, singleRulePerOp := false) {
 	res := {};
 	for (r in rules) {
@@ -180,45 +220,83 @@ makeDiffFuncRules := procedure() {
 makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 	return makeRules([
 		["^", [
-			checkArityRule("^", 2, 1),
-			nullElRule("^", 0, @Number(1)),
-			someNumRule("^", [a, b] |-> a ** b, true),
-			neutralElRule("^", 1),
+			// Must have exactly 2 operands
+			checkArityRule("^", 2),
+			// numbers can be directly calculated
+			allNumRule([a,b] |-> a ** b),
+			// a ^ 0 = 1
 			[
-				params |-> #params > 2,
-				params |-> @Op("^", [params[1], @Op("*", params[2..])])
+				params |-> params[2] == @Number(0),
+				params |-> @Number(1)
+			],
+			// a ^ 1 = a
+			[
+				params |-> params[2] == @Number(1),
+				params |-> params[1]
+			],
+			// 0^a = 0 && 1^a = 1
+			[
+				params |-> params[1] in {@Number(0), @Number(1)},
+				params |-> params[1]
+			],
+			// a^(b^c) = a^(b*c)
+			[
+				params |-> fct(params[2]) == "Op" && args(params[2])[1] == "^",
+				params |-> @Op("^", [params[1], @Op("*", args(params[2])[2..])])
 			]
 		]],
 		["+", [
+			// Must have at least 2 operands
 			checkArityRule("+", 2, 1),
+			// (a + b) + c = a + (b + c)
 			associativeRule("+", "Op"),
+			// Commutative && numbers can be directly calculated
 			someNumRule("+", [a, b] |-> a + b),
+			// Commutative && a+a = 2*a
 			someSameExprsRule("+", sames |-> @Op("*", [@Number(#sames), sames[1]])),
+			// a + 0 + b = a + b
 			neutralElRule("+", 0),
+			// a + (-n) = a - n
+			[
+				params |-> exists (p in params | fct(p) == "Number" && args(p)[1] < 0),
+				procedure(params) {
+					[negs, pos] := splitListInTwo(params, p |-> fct(p) == "Number" && args(p)[1] < 0);
+					negs := [@Number(-args(n)[1]) : n in negs];
+					return @Op("-", [@Op("+", [@Number(0)] + pos), @Op("+", [@Number(0)] + negs)]);
+				}
+			],
+			// a + (b - c) + (d - e) = (a + b + d) - (c + e)
 			[
 				params |-> exists (p in params | fct(p) == "Op" && args(p)[1] == "-"),
 				procedure(params) {
 					[negs, pos] := splitListInTwo(params, p |-> fct(p) == "Op" && args(p)[1] == "-");
 					pos += [ args(p)[2][1] : p in negs ];
-					negs := flatten(map(negs, [p, i] |-> args(p)[2][2..]));
-					return @Op("-", [@Op("+", pos)] + negs);
+					negs := map(negs, [p, i] |-> args(p)[2][2]);
+					if (#negs > 1) {
+						return @Op("-", [@Op("+", pos), @Op("+", negs)]);
+					} else {
+						return @Op("-", [@Op("+", pos), negs[1]]);
+					}
 				}
 			]
 		]],
 		["*", [
 			// Must have at least 2 operands
 			checkArityRule("*", 2, 1),
-			// a * (b * c) = (a * b) * c = a * b * c
+			// 0 * a = a * 0 = 0
+			[
+				params |-> exists (p in params | p == @Number(0)),
+				params |-> @Number(0)
+			],
+			// a * (b * c) = (a * b) * c
 			associativeRule("*", "Op"),
-			// 0 * a == 0
-			nullElRule("*", 0, @Number(0)),
-			// calculate number operands
+			// Commutative && numbers can be directly calculated
 			someNumRule("*", [a, b] |-> a * b),
-			// a * a == a ^ 2
+			// Commutative && a * a = a ^ 2
 			someSameExprsRule("*", sames |-> @Op("^", [sames[1], @Number(#sames)])),
-			// a * 1 == a
+			// a * 1 = 1 * a = a
 			neutralElRule("*", 1),
-			// (a ^ b) * (a ^ c) == a ^ (b + c)
+			// (a ^ b) * (a ^ c) = a ^ (b + c)
 			cachedExprRule("*", procedure(p) {
 				match(p) {
 					case @Op(op, params):
@@ -252,7 +330,7 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 				}
 				return @Op("^", [base, @Op("+", exps)]);
 			}),
-			// a * b * (c +/- d)  ==  a * b * c  +/-  a * b * d
+			// a * b * (c +/- d)  =  a * b * c  +/-  a * b * d
 			// TODO: Currently only applies if there is exactly one paranthesized expression - is this wanted?
 			// TODO: Port rule to "/" (or generalize into an abstract rule?)
 			[
@@ -264,21 +342,34 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 					[distOp, distParams] := args(distributables[1]);
 					return @Op(distOp, [ @Op("*", others + [dp]) : dp in distParams ]);
 				}
+			],
+			// a * (b / c) = (a * b) / c  &&  (a / b) * c = (a * c) / b
+			[
+				params |-> exists (p in params | fct(p) == "Op" && args(p)[1] == "/"),
+				procedure(params) {
+					[xs, ys] := splitListInTwo(params, p |-> fct(p) != "Op" || args(p)[1] != "/");
+					nums := xs + [ args(y)[2][1] : y in ys ];
+					dens := [ args(y)[2][2] : y in ys ];
+					// stop("test");
+					return @Op("/", [@Op("*", [@Number(1)] + nums), @Op("*", [@Number(1)] + dens)]);
+				}
 			]
 		]],
 		["-", [
+			// If used as unary operation (negation)
+			// All other rules don't take unary negation into effect, so this rule must not return a unary negation
 			[
 				params |-> #params == 1,
 				procedure(params) {
 					p := params[1];
 					match(p) {
 						case @Number(n):
-							return @Number(-1 * n);
+							return @Number(-n);
 						case @UnaryOp(op, arg):
 							assert(arg == "-", "Negation is currently assumed to be the only unary operation");
 							return arg;
 						case @Op("-", args):
-							return @Op("+", [@UnaryOp("-", args[1])] + args[2..]);
+							return @Op("+", [@UnaryOp("-", args[1]), args[2]]);
 						case @Op("+", args):
 							return @Op("-", [@Number(0)] + args);
 						default:
@@ -286,70 +377,105 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 					}
 				}
 			],
-			checkArityRule("-", 2, 1),
-			[
-				params |-> exists (x in params[2..] | fct(x) == "Op" && args(x)[1] in {"-", "+"}),
-				params |-> @Op("+", map(params, procedure(x, i) {
-					if (i != 1 && fct(x) == "Op") {
-						[op, opArgs] := args(x);
-						match (op) {
-							case "-":
-								return @Op("+", [@UnaryOp("-", opArgs[1])] + opArgs[2..]);
-							case "+":
-								return @Op("-", [@Number(0)] + opArgs);
-							default:
-								return @UnaryOp("-", x);
-						}
-					} else {
-						return @UnaryOp("-", x);
-					}
-				}))
-			],
+			// Must have exactly two operands
+			checkArityRule("-", 2),
+			// numbers can be directly calculated
 			allNumRule([a, b] |-> a - b),
-			someNumRule("-", [a, b] |-> a + b, false, 1),
-			neutralElRule("-", 0, 1)
-		]],
-		["/", [
-			checkArityRule("/", 2, 1),
+			// a - 0 = a
 			[
-				params |-> exists (p in params[2..] | fct(p) == "Number" && args(p)[1] == 0),
-				params |-> abort("Division by 0,")
+				params |-> params[2] == @Number(0),
+				params |-> params[1]
 			],
+			// a - a = 0
 			[
-				params |-> fct(params[1]) == "Number" && args(params[1])[1] == 0,
+				params |-> params[1] == params[2],
 				params |-> @Number(0)
 			],
-			associativeRule("/", "Op", 1, firstGroup |-> [@Op("*", firstGroup)]),
+			// Numbers can be calculated directly
+			invSomeNumRule("-", "+", [a,b] |-> a-b, a |-> -a),
+			// a - (b - c) = (a + c) - b
 			[
-				params |-> #params > 2,
-				params |-> @Op("/", [params[1], @Op("*", params[2..])])
+				params |-> fct(params[2]) == "Op" && args(params[2])[1] == "-",
+				procedure(params) {
+					[a, [b, c]] := [params[1], args(params[2])[2]];
+					return @Op("-", [@Op("+", [a, c]), b]);
+				}
 			],
-			allNumRule([a, b] |-> a / b),
-			someNumRule("/", [a, b] |-> a * b, false, 1),
-			neutralElRule("/", 1, 1)
+			// (a - b) - c = a - (b + c)
+			[
+				params |-> fct(params[2]) == "Op" && args(params[2])[1] == "-",
+				procedure(params) {
+					[[a, b], c] := [args(params[1])[2], params[2]];
+					return @Op("-", [a, @Op("+", [b, c])]);
+				}
+			]
+		]],
+		["/", [
+			// Must have exactly 2 operands
+			checkArityRule("/", 2),
+			// a / 0 is not allowed
+			[
+				params |-> params[2] == @Number(0),
+				params |-> abort("Division by 0")
+			],
+			// Numbers can be calculated directly
+			invSomeNumRule("/", "*", [a,b] |-> a/b, a |-> 1/a),
+			// 0 / a == 0
+			[
+				params |-> params[1] == @Number(0),
+				params |-> @Number(0)
+			],
+			// a / 1 == a
+			[
+				params |-> params[2] == @Number(1),
+				params |-> params[1]
+			],
+			// (a / b) / c == a / (b * c)
+			[
+				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "/",
+				procedure(params) {
+					[[a, b], c] := [args(params[1])[2], params[2]];
+					return @Op("/", [a, @Op("*", [b, c])]);
+				}
+			],
+			// a / (b / c) == (a * c) / b
+			[
+				params |-> fct(params[2]) == "Op" && args(params[2])[1] == "/",
+				procedure(params) {
+					[a, [b, c]] := [params[1], args(params[2])[2]];
+					return @Op("/", [@Op("*", [a, c]), b]);
+				}
+			]
 		]],
 		["diff", [
+			// Must have exactly two arguments
 			checkArityRule("diff", 2),
+			// derivative of a number is 0
 			[
 				params |-> fct(params[1]) == "Number",
 				params |-> @Number(0)
 			],
+			// derivative of x by x is 1
 			[
 				params |-> fct(params[1]) == "Name" && params[1] == params[2],
 				params |-> @Number(1)
 			],
+			// derivative of y by x is 0
 			[
 				params |-> fct(params[1]) == "Name",
 				params |-> @Number(0)
 			],
+			// diff(f + g, x) = diff(f, x) + diff(g, x)
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "+",
 				params |-> @Op("+", [ @Func("diff", [x, params[2]]) : x in args(params[1])[2] ])
 			],
+			// diff(f - g, x) = diff(f, x) - diff(g, x)
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "-",
 				params |-> @Op("-", [ @Func("diff", [x, params[2]]) : x in args(params[1])[2] ])
 			],
+			// diff(x^n, x) = n * x^(n-1)
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "^",
 				procedure(params) {
@@ -375,6 +501,7 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 					}
 				}
 			],
+			// diff(f * g, x) = diff(f, x) * g + f * diff(g, x)
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "*",
 				procedure(params) {
@@ -385,31 +512,39 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 					return @Op("+", inner);
 				}
 			],
+			// diff(f / g, x) = (diff(f, x) * g - f * diff(g, x)) / g^2
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "/",
 				procedure(params) {
-					sym := params[2];
+					x := params[2];
 					opTerm := params[1];
 					opArgs := args(opTerm)[2];
-					inner := [ @Op("*", [@Func("diff", [opArgs[i], sym])] + [opArgs[j] : j in {1..#opArgs} | i != j]) : i in {1..#opArgs} ];
-					dens := [ @Op("*", [x, x]) : x in opArgs[2..] ];
-					return @Op("/", [@Op("-", inner)] + dens);
+					f := opArgs[1];
+					g := opArgs[2];
+					num := @Op("-", [@Op("*", [@Func("diff", [f, x]), g]), @Op("*", [f, @Func("diff", [g, x])])]);
+					den := @Op("^", [g, @Number(2)]);
+					return @Op("/", [num, den]);
 				}
 			],
+			// diff(f(g(x)), x) = diff(g(x), x) * f(g(x))
 			chainRule("diff", diffFuncRules)
 		]],
 		["sin", [
+			// Must have exactly 1 argument
 			checkArityRule("sin", 1),
+			// Calculate numbers directly
 			[
 				params |-> fct(params[1]) == "Number",
-				params |-> sin(params[1][1])
+				params |-> @Number(sin(params[1][1]))
 			]
 		]],
 		["cos", [
+			// Must have exactly 1 argument
 			checkArityRule("cos", 1),
+			// Calculate numbers directly
 			[
 				params |-> fct(params[1]) == "Number",
-				params |-> cos(params[1][1])
+				params |-> @Number(cos(params[1][1]))
 			]
 		]]
 	]);
