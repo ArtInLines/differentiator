@@ -12,7 +12,7 @@ evalStr([
 	"diff(x * x, x)",
 	"(x * (7 + 8 / x)) - diff(7 * x * x * x, x)",
 	"diff(diff(cos(sin(x)), x), x)",
-	"-6 * (-3) * x",
+	"-6 * x * (-3)",
 	"diff(sin(x) * x^2, x) * cos(x)",
 	"a^(x^y*b)",
 	"a*b^x^y",
