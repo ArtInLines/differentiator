@@ -10,22 +10,27 @@ class global() {
 }
 
 
-eval := procedure(expr, rules := global.rules) {
-	assert(isTerm(expr), "eval expects 'expr' to be a term, instead received: $expr$");
+eval := procedure(expr, rw memo, rules := global.rules) {
+	// stop("eval");
 	if (global.DEBUG) {
 		print("Evaluating $expr$...");
 	}
+	if (expr in domain(memo)) {
+		return memo[expr];
+	}
+	assert(isTerm(expr), "eval expects 'expr' to be a term, instead received: $expr$");
+
 	match(expr) {
 		case @Number(n):
-			return expr;
+			memo[expr] := expr;
 		case @Name(s):
-			return expr;
+			memo[expr] := expr;
 		case @Func(f, params):
 			if (f in domain(rules)) {
 				if (global.DEBUG) {
 					print("func: $f$ - params: $params$");
 				}
-				params := [ eval(p, rules) : p in params ];
+				params := [ eval(p, memo, rules) : p in params ];
 				for (r in rules[f]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];
@@ -36,10 +41,13 @@ eval := procedure(expr, rules := global.rules) {
 							print("Applied rule: $r$");
 							print("Result: $res$");
 						}
-						return eval(res, rules);
+						memo[expr] := eval(res, memo, rules);
+						break;
 					}
 				}
-				return @Func(f, params);
+				if (expr notin domain(memo)) {
+					memo[expr] := @Func(f, params);
+				}
 			} else {
 				abort("Error at eval($expr$) - Function not found in rules.");
 			}
@@ -48,7 +56,7 @@ eval := procedure(expr, rules := global.rules) {
 				if (global.DEBUG) {
 					print("op: $op$ - params: $params$");
 				}
-				params := [ eval(p, rules) : p in params ];
+				params := [ eval(p, memo, rules) : p in params ];
 				for (r in rules[op]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];
@@ -59,14 +67,17 @@ eval := procedure(expr, rules := global.rules) {
 							print("Applied rule: $r$");
 							print("Result: $res$");
 						}
-						return eval(res, rules);
+						memo[expr] := eval(res, memo, rules);
+						break;
 					}
 				}
 
-				if (global.DEBUG) {
-					print("No applicable rule - returning $@Op(op, params)$");
+				if (expr notin domain(memo)) {
+					if (global.DEBUG) {
+						print("No applicable rule - returning $@Op(op, params)$");
+					}
+					memo[expr] := @Op(op, params);
 				}
-				return @Op(op, params);
 			} else {
 				abort("Error at eval($expr$) - Operation not found in rules.");
 			}
@@ -75,7 +86,7 @@ eval := procedure(expr, rules := global.rules) {
 				if (global.DEBUG) {
 					print("unaryOp: $op$ - param: $param$");
 				}
-				params := [eval(param, rules)];
+				params := [eval(param, memo, rules)];
 				for (r in rules[op]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];
@@ -86,15 +97,19 @@ eval := procedure(expr, rules := global.rules) {
 							print("Applied rule: $r$");
 							print("Result: $res$");
 						}
-						return eval(res, rules);
+						memo[expr] := eval(res, memo, rules);
+						break;
 					}
 				}
-				return @UnaryOp(op, params);
+				if (expr notin domain(memo)) {
+					memo[expr] := @UnaryOp(op, params);
+				}
 			} else {
 				abort("Error at eval($expr$) - Unary Operation not found in rules.");
 			}
 		default: abort("Error at eval($expr$) - Unknown Expression.");
 	}
+	return memo[expr];
 };
 
 getMaxPrec := procedure() {
@@ -118,13 +133,16 @@ getOpPrec := procedure(op) {
 	}
 };
 
+isOpAssoc := procedure(op) {
+	return op in {"+", "*"};
+};
+
 isOpRightAssoc := procedure(op) {
-	match(op) {
-		case "^":
-			return true;
-		default:
-			return false;
-	}
+	return op in {"+", "*", "^"};
+};
+
+isOpLeftAssoc := procedure(op) {
+	return op in {"+", "*", "-", "/"};
 };
 
 idxOfClosedParan := procedure(tokens) {
@@ -225,8 +243,11 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 				[lastOp, params] := args(last);
 				assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
 
-				if (op == lastOp) {
+				if (op == lastOp && isOpAssoc(op)) {
 					expr := @Op(op, params + [next]);
+				} else if (op == lastOp && isOpRightAssoc(op)) {
+					assert(#params == 2, "Right-Associative operations, that aren't also left-associative are assumed to always take exactly 2 operands.");
+					expr := @Op(op, [params[1], @Op(op, [params[2], next])]);
 				} else if (lastPrec < currPrec) {
 					expr := @Op(lastOp, params[..-2] + [@Op(op, [params[-1], next])]);
 					currPrec := lastPrec;
@@ -391,7 +412,7 @@ evalStr := procedure(strs, rules := global.rules, pretty := true, includeBefore 
 		// global.DEBUG := false;
 		tokens := tokenize(s);
 		expr := parse(tokens);
-		res := eval(expr, rules);
+		res := eval(expr, {}, rules);
 		outStr := stringify(res, pretty);
 
 		if (includeBefore) {
