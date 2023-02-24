@@ -99,14 +99,20 @@ map := procedure(l, f, range := {1..#l}) {
 	return [ f(l[i], i) : i in range ];
 };
 
-flatten := procedure(l, dim := 1) {
+flatten := procedure(l, dim := om) {
+	nextDim := om;
+	if (isInteger(dim)) {
+		nextDim := dim - 1;
+	}
 	match(l) {
 		case []:
 			return [];
 		case [x|r]:
-			if (dim <= 0 || !isList(x)) {
+			if (isList(x) && (dim == om || dim > 0)) {
+				x := flatten(x, nextDim);
+			} else {
 				x := [x];
 			}
-			return x + flatten(r, dim - 1);
+			return x + flatten(r, nextDim);
 	}
 };
