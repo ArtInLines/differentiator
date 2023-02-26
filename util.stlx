@@ -2,6 +2,13 @@ identity := procedure(x) {
 	return x;
 };
 
+reverse := procedure(xs) {
+	match(xs) {
+		case []: return [];
+		case [x|r]: return reverse(r) + [x];
+	}
+};
+
 reduceFromFirst := procedure(l, f, rev := false) {
 	assert(l != [], "reduceFromFirst expects a non-empty list as input");
 	if (rev) {
@@ -40,6 +47,23 @@ some := procedure(l, f) {
 		}
 	}
 	return false;
+};
+
+splitBy := procedure(l, el) {
+	res := [];
+	l2 := [];
+	for (x in l) {
+		if (x == el && l2 != []) {
+			res += [l2];
+			l2 := [];
+		} else {
+			l2 += [x];
+		}
+	}
+	if (l2 != []) {
+		res += [l2];
+	}
+	return res;
 };
 
 // Splits a list in two sublists.

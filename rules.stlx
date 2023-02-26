@@ -212,8 +212,8 @@ makeRules := procedure(rules, singleRulePerOp := false) {
 
 makeDiffFuncRules := procedure() {
 	return makeRules([
-		["sin", params |-> @Func("cos", params)],
-		["cos", params |-> @UnaryOp("-", @Func("sin", params))]
+		["Sin", params |-> @Func("Cos", params)],
+		["Cos", params |-> @UnaryOp("-", @Func("Sin", params))]
 	], true);
 };
 
@@ -447,9 +447,9 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 				}
 			]
 		]],
-		["diff", [
+		["Diff", [
 			// Must have exactly two arguments
-			checkArityRule("diff", 2),
+			checkArityRule("Diff", 2),
 			// derivative of a number is 0
 			[
 				params |-> fct(params[1]) == "Number",
@@ -468,12 +468,12 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 			// diff(f + g, x) = diff(f, x) + diff(g, x)
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "+",
-				params |-> @Op("+", [ @Func("diff", [x, params[2]]) : x in args(params[1])[2] ])
+				params |-> @Op("+", [ @Func("Diff", [x, params[2]]) : x in args(params[1])[2] ])
 			],
 			// diff(f - g, x) = diff(f, x) - diff(g, x)
 			[
 				params |-> fct(params[1]) == "Op" && args(params[1])[1] == "-",
-				params |-> @Op("-", [ @Func("diff", [x, params[2]]) : x in args(params[1])[2] ])
+				params |-> @Op("-", [ @Func("Diff", [x, params[2]]) : x in args(params[1])[2] ])
 			],
 			// diff(x^n, x) = n * x^(n-1)
 			[
@@ -488,9 +488,9 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 						assert(#exps == 1 && fct(exps[1]) == "Number", "Differentiation of exponents that are more complex expressions than single numbers aren't implemented yet.");
 						n := args(exps[1])[1];
 						if (n == 0) {
-							return @Func("diff", @Number(1));
+							return @Func("Diff", @Number(1));
 						} else if (n == 1) {
-							return @Func("diff", sym);
+							return @Func("Diff", sym);
 						} else {
 							return @Op("*", [@Number(n), @Op("^", [sym, @Number(n-1)])]);
 						}
@@ -508,7 +508,7 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 					sym := params[2];
 					opTerm := params[1];
 					opArgs := args(opTerm)[2];
-					inner := [ @Op("*", [@Func("diff", [opArgs[i], sym])] + [opArgs[j] : j in {1..#opArgs} | i != j]) : i in {1..#opArgs} ];
+					inner := [ @Op("*", [@Func("Diff", [opArgs[i], sym])] + [opArgs[j] : j in {1..#opArgs} | i != j]) : i in {1..#opArgs} ];
 					return @Op("+", inner);
 				}
 			],
@@ -521,31 +521,41 @@ makeDefaultRules := procedure(diffFuncRules := makeDiffFuncRules()) {
 					opArgs := args(opTerm)[2];
 					f := opArgs[1];
 					g := opArgs[2];
-					num := @Op("-", [@Op("*", [@Func("diff", [f, x]), g]), @Op("*", [f, @Func("diff", [g, x])])]);
+					num := @Op("-", [@Op("*", [@Func("Diff", [f, x]), g]), @Op("*", [f, @Func("Diff", [g, x])])]);
 					den := @Op("^", [g, @Number(2)]);
 					return @Op("/", [num, den]);
 				}
 			],
 			// diff(f(g(x)), x) = diff(g(x), x) * f(g(x))
-			chainRule("diff", diffFuncRules)
+			chainRule("Diff", diffFuncRules)
 		]],
-		["sin", [
+		["Sin", [
 			// Must have exactly 1 argument
-			checkArityRule("sin", 1),
+			checkArityRule("Sin", 1),
 			// Calculate numbers directly
 			[
 				params |-> fct(params[1]) == "Number",
-				params |-> @Number(sin(params[1][1]))
+				params |-> @Number(sin(args(params[1])[1]))
 			]
 		]],
-		["cos", [
+		["Cos", [
 			// Must have exactly 1 argument
-			checkArityRule("cos", 1),
+			checkArityRule("Cos", 1),
 			// Calculate numbers directly
 			[
 				params |-> fct(params[1]) == "Number",
-				params |-> @Number(cos(params[1][1]))
+				params |-> @Number(cos(args(params[1])[1]))
 			]
 		]]
 	]);
+};
+
+// Assumes that there cannot be any variables named "unused" or "funcs"
+makeDefaultVarTable := procedure() {
+	varTable := {};
+	varTable["unused"] := [];
+	varTable["funcs"] := ["Sin", "Cos", "Diff"];
+	varTable["Pi"] := @Number(mathConst("pi"));
+	varTable["e"] := @Number(mathConst("e"));
+	return varTable;
 };

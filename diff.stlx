@@ -6,6 +6,7 @@ load("ops.stlx");
 class global() {
 	static {
 		rules := makeDefaultRules();
+		varTable := makeDefaultVarTable();
 		DEBUG := false;
 	}
 }
@@ -136,14 +137,35 @@ idxOfClosedParan := procedure(tokens) {
 	}
 };
 
-parse := procedure(tokens) {
+parse := procedure(tokens, rw varTable) {
 	if (isString(tokens)) {
 		tokens := tokenize(tokens);
 	}
-	return parseExpr(tokens);
+	xs := splitBy(tokens, @TokWhere());
+	exprTokens := xs[1];
+	for (toks in reverse(xs[2..])) {
+		parseAssignment(toks, varTable);
+	}
+	return parseExpr(xs[1], varTable);
 };
 
-parseExprList := procedure(tokens) {
+parseAssignment := procedure(tokens, rw varTable) {
+	assert(fct(tokens[1]) == "TokName", "The first token in an assignment must be a name, instead received $tokens[1]$");
+	assert(tokens[2] == @TokEqual(), "The second token in an assignment must be an equal-sign, instead received $tokens[2]$");
+
+	var := args(tokens[1])[1];
+	if (var in domain(varTable)) {
+		abort("Error at parseAssignment($tokens$) - $var$ is already defined. You can't overwrite variable definitions.");
+	}
+	if (@TokName(var) in tokens[3..]) {
+		abort("Error at parseAssignment($tokens$) - Recursive definitions are not allowed.");
+	}
+
+	expr := parseExpr(tokens[3..], varTable);
+	varTable[var] := expr;
+};
+
+parseExprList := procedure(tokens, rw varTable) {
 	if (global.DEBUG) {
 		print("Parsing expression-list $tokens$...");
 	}
@@ -169,14 +191,14 @@ parseExprList := procedure(tokens) {
 
 	if (parans == 0) {
 		exprs += [tokens[..-2]];
-		exprs := [ parseExpr(x) : x in exprs ];
+		exprs := [ parseExpr(x, varTable) : x in exprs ];
 		return exprs;
 	} else {
 		abort("Error at parseExprList($tokens$): Unmatched Parantheses.");
 	}
 };
 
-parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
+parseExpr := procedure(tokens, rw varTable, last := om, lastPrec := om, paranLevel := 0) {
 	if (global.DEBUG) {
 		print("Parsing expression $tokens$ with last: $last$...");
 	}
@@ -187,7 +209,7 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 		if (global.DEBUG) {
 			print("last is om && first token is not op: $tokens[1]$");
 		}
-		return parseTerm(tokens, true, paranLevel);
+		return parseTerm(tokens, varTable, true, paranLevel);
 	}
 
 	expr := om;
@@ -197,7 +219,7 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 	match(token) {
 		case @TokOp(op):
 			assert(tokens != [], "An operator must be followed by an expression");
-			next := parseTerm(tokens, false, paranLevel);
+			next := parseTerm(tokens, varTable, false, paranLevel);
 			currPrec := getOpPrec(op) + paranLevel * getMaxPrec();
 			if (global.DEBUG) {
 				print("next: $next$");
@@ -225,20 +247,23 @@ parseExpr := procedure(tokens, last := om, lastPrec := om, paranLevel := 0) {
 			} else {
 				expr := @Op(op, [last, next]);
 			}
+		case t | fct(last) in ["Name", "Number"] && fct(token) in ["TokName", "TokNum"]:
+			curr := parseTerm([token], varTable, false, 0);
+			expr := @Op("*", [curr, last]);
 		default:
 			if (global.DEBUG) {
 				print("This place seems to be unreachable.");
-				stop("eval - default case:");
+				stop("parseExpr - default case:");
 			}
-			expr := parseTerm([token] + tokens, false, paranLevel);
+			expr := parseTerm([token] + tokens, varTable, false, paranLevel);
 	}
 	if (global.DEBUG) {
 		print("Parsing done - Result: $expr$");
 	}
-	return parseExpr(tokens, expr, currPrec, paranLevel);
+	return parseExpr(tokens, varTable, expr, currPrec, paranLevel);
 };
 
-parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
+parseTerm := procedure(rw tokens, rw varTable, rec := false, paranLevel := 0) {
 	assert(tokens != [], "parseTerm expects a non-empty list as input");
 	if (global.DEBUG) {
 		print("Parsing term $tokens$ with rec: $rec$...");
@@ -247,43 +272,56 @@ parseTerm := procedure(rw tokens, rec := false, paranLevel := 0) {
 		case @TokNum(num):
 			tokens := tokens[2..];
 			if (rec) {
-				return parseExpr(tokens, @Number(num), om, paranLevel);
+				return parseExpr(tokens, varTable, @Number(num), om, paranLevel);
 			} else {
 				return @Number(num);
 			}
 		case @TokName(name):
+			res := @Name(name);
+			tokens := tokens[2..];
+			isFollowedByParans := #tokens > 2 && fct(tokens[1]) == "TokParanOpen";
+
+			if (name in domain(varTable)) {
+				res := varTable[name];
+			} else if (name in varTable["funcs"]) {
+				assert(isFollowedByParans, "$name$ is a function and must be followed by parantheses");
+			} else if (name notin varTable["unused"]) {
+				varTable["unused"] += [name];
+			}
 			// Name + ParanOpen + ParanClosed are required for it to be a function-call
-			if (#tokens > 3 && fct(tokens[2]) == "TokParanOpen") {
-				tokens := tokens[3..];
+			if (isFollowedByParans) {
+				tokens := tokens[2..];
 				idx := idxOfClosedParan(tokens);
 				assert(fct(tokens[idx]) == "TokParanClosed", "The index returned by idxOfClosedParan should point to a closing parantheses. Returned index is $idx$ and points at $tokens[idx]$");
 				innerArgs := tokens[..idx];
 				tokens := tokens[idx+1..];
-				params := parseExprList(innerArgs);
-				if (rec) {
-					return parseExpr(tokens, @Func(name, params), om, paranLevel);
+				params := parseExprList(innerArgs, varTable);
+				if (name in varTable["funcs"]) {
+					res := @Func(name, params);
+				} else if (#params > 1) {
+					abort("The variable $name$ is not a valid function. `$name$($join(params, ', ')$)` is a function call, because there are several arguments separated by ','");
 				} else {
-					return @Func(name, params);
+					innerExpr := params[1];
+					res := @Op("*", [res, innerExpr]);
 				}
+			}
+
+			if (rec) {
+				return parseExpr(tokens, varTable, res, om, paranLevel);
 			} else {
-				tokens := tokens[2..];
-				if (rec) {
-					return parseExpr(tokens, @Name(name), om, paranLevel);
-				} else {
-					return @Name(name);
-				}
+				return res;
 			}
 		case @TokParanOpen():
 			tokens := tokens[2..];
 			idx := idxOfClosedParan(tokens);
-			expr := parseExpr(tokens[..idx-1], om, om, paranLevel + 1);
+			expr := parseExpr(tokens[..idx-1], varTable, om, om, paranLevel + 1);
 			lastPrec := om;
 			if (fct(expr) == "Op") {
 				lastPrec := getOpPrec(args(expr)[1]) + getMaxPrec() * (paranLevel + 1);
 			}
 			tokens := tokens[idx+1..];
 			if (rec) {
-				return parseExpr(tokens, expr, lastPrec, paranLevel);
+				return parseExpr(tokens, varTable, expr, lastPrec, paranLevel);
 			} else {
 				return expr;
 			}
@@ -298,7 +336,11 @@ tokenize := procedure(str) {
 	toks := [];
 	scan(str) {
 		regex '\s+': // Skip starting whitespace
-		regex '[a-zA-Z][a-zA-Z_0-9]*' as [ name ]:
+		regex 'where\s+':
+			toks += [ @TokWhere() ];
+		regex '=':
+			toks += [ @TokEqual() ];
+		regex '[a-z]|[A-Z][a-zA-Z_0-9]*' as [ name ]:
 			toks += [ @TokName(name) ];
 		regex '(0|[1-9][0-9]*).[0-9]+' as [ num, _ ]:
 			toks += [ @TokNum(double(num)) ];
@@ -365,7 +407,7 @@ stringify := procedure(expr, pretty := true, outsidePrec := om, isFirstOperand :
 	}
 };
 
-evalStr := procedure(strs, rules := global.rules, pretty := true, includeBefore := true, toPrint := true) {
+evalStr := procedure(strs, pretty := true, includeBefore := true, toPrint := true, rules := global.rules, varTable := global.varTable) {
 	pad := 0;
 	if (isList(strs)) {
 		lengths := [#s : s in strs];
@@ -379,7 +421,7 @@ evalStr := procedure(strs, rules := global.rules, pretty := true, includeBefore 
 		// global.DEBUG := true;
 		// global.DEBUG := false;
 		tokens := tokenize(s);
-		expr := parse(tokens);
+		expr := parse(tokens, varTable);
 		res := eval(expr, {}, rules);
 		outStr := stringify(res, pretty);
 
