@@ -22,5 +22,6 @@ evalStr([
 	"a * a + a * a",
 	"(a / b) / (c / d)",
 	"Cos(4Pi)",
-	"Cos(p) where p = c where c = 0"
+	"Cos(p) where p = c where c = 0",
+	"Diff(x^2, a) where x = 3a + c" // expects 18a + 6c
 ]);
