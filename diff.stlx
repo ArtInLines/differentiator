@@ -1,5 +1,6 @@
 load("util.stlx");
 load("rules.stlx");
+load("ops.stlx");
 
 
 class global() {
@@ -110,39 +111,6 @@ eval := procedure(expr, rw memo, rules := global.rules) {
 		default: abort("Error at eval($expr$) - Unknown Expression.");
 	}
 	return memo[expr];
-};
-
-getMaxPrec := procedure() {
-	return 3;
-};
-
-getOpPrec := procedure(op) {
-	match(op) {
-		case "^":
-			return 3;
-		case "*":
-			return 2;
-		case "/":
-			return 2;
-		case "+":
-			return 1;
-		case "-":
-			return 1;
-		default:
-			abort("Error at getOpPrec($op$) - Unknown operator");
-	}
-};
-
-isOpAssoc := procedure(op) {
-	return op in {"+", "*"};
-};
-
-isOpRightAssoc := procedure(op) {
-	return op in {"+", "*", "^"};
-};
-
-isOpLeftAssoc := procedure(op) {
-	return op in {"+", "*", "-", "/"};
 };
 
 idxOfClosedParan := procedure(tokens) {
