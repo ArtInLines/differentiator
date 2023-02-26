@@ -231,6 +231,7 @@ parseExpr := procedure(tokens, rw varTable, last := om, lastPrec := om, paranLev
 				expr := @UnaryOp(op, next);
 			} else if (fct(last) == "Op") {
 				[lastOp, params] := args(last);
+				assert(lastPrec != om, "Expects lastPrec to be a number, when last was an operation.");
 				assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
 
 				if (op == lastOp && isOpAssoc(op)) {
@@ -249,6 +250,7 @@ parseExpr := procedure(tokens, rw varTable, last := om, lastPrec := om, paranLev
 			}
 		case t | fct(last) in ["Name", "Number"] && fct(token) in ["TokName", "TokNum"]:
 			curr := parseTerm([token], varTable, false, 0);
+			currPrec := getOpPrec("*") + paranLevel * getMaxPrec();
 			expr := @Op("*", [curr, last]);
 		default:
 			if (global.DEBUG) {
@@ -278,11 +280,15 @@ parseTerm := procedure(rw tokens, rw varTable, rec := false, paranLevel := 0) {
 			}
 		case @TokName(name):
 			res := @Name(name);
+			prec := om;
 			tokens := tokens[2..];
 			isFollowedByParans := #tokens > 2 && fct(tokens[1]) == "TokParanOpen";
 
 			if (name in domain(varTable)) {
 				res := varTable[name];
+				if (fct(res) == "Op") {
+					prec := getOpPrec(args(res)[1]) + getMaxPrec() * (paranLevel + 1);
+				}
 			} else if (name in varTable["funcs"]) {
 				assert(isFollowedByParans, "$name$ is a function and must be followed by parantheses");
 			} else if (name notin varTable["unused"]) {
@@ -302,12 +308,13 @@ parseTerm := procedure(rw tokens, rw varTable, rec := false, paranLevel := 0) {
 					abort("The variable $name$ is not a valid function. `$name$($join(params, ', ')$)` is a function call, because there are several arguments separated by ','");
 				} else {
 					innerExpr := params[1];
+					prec := getOpPrec("*") + getMaxPrec() * paranLevel;
 					res := @Op("*", [res, innerExpr]);
 				}
 			}
 
 			if (rec) {
-				return parseExpr(tokens, varTable, res, om, paranLevel);
+				return parseExpr(tokens, varTable, res, prec, paranLevel);
 			} else {
 				return res;
 			}
