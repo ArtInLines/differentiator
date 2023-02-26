@@ -428,7 +428,8 @@ evalStr := procedure(strs, pretty := true, includeBefore := true, toPrint := tru
 		// global.DEBUG := true;
 		// global.DEBUG := false;
 		tokens := tokenize(s);
-		expr := parse(tokens, varTable);
+		vt := varTable;
+		expr := parse(tokens, vt);
 		res := eval(expr, {}, rules);
 		outStr := stringify(res, pretty);
 
