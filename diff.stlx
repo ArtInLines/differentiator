@@ -13,14 +13,15 @@ class global() {
 
 
 eval := procedure(expr, rw memo, rules := global.rules) {
-	// stop("eval");
 	if (global.DEBUG) {
 		print("Evaluating $expr$...");
 	}
 	if (expr in domain(memo)) {
 		return memo[expr];
 	}
-	assert(isTerm(expr), "eval expects 'expr' to be a term, instead received: $expr$");
+	if (!isTerm(expr)) {
+		abort("eval expects 'expr' to be a term, instead received: $expr$");
+	}
 
 	match(expr) {
 		case @Number(n):

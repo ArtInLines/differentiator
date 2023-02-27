@@ -1,0 +1,22 @@
+x + 0 --> x
+x * 0 --> 0
+x + 0*b - 6 -3 --> x - 9
+(x + 7) * 34 --> 34x + 238
+Diff(a, a) --> 1
+Diff(Diff(x * x * y, x), y) --> 2x
+Diff(f / g / h, f) --> 1 / gh
+Diff(x * x^4, x) --> 5x^4
+(x * (7 + 8 / x)) - Diff(7 * x * x^2, x) --> 7x + 8 - 21x^2
+Diff(Diff(Cos(Sin(x)), x), x) --> Sin(Sin(x)) * Sin(x) - Cos(Sin(x)) * Cos(x)^2
+-6 * x * (-3) --> 18x
+Diff(Sin(x) * x^2, x) * Cos(x) --> x^2 * Cos(x)^2 + 2x * Cos(x) * Sin(x)
+a^x^y * a^b --> a^(xy + b)
+a^x^y^z --> a^(xyz)
+-(-1) --> 1
+-(-x) --> x
+3 * x + x --> 4x
+a * a + a * a --> 2 * a^2
+(a / b) / (c / d) --> ad / bc
+Cos(4Pi) --> 1.0
+Cos(p) where p = c where c = 0 --> 1.0
+Diff(x^2, a) where x = 3a + c --> 18a + 6c

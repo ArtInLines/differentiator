@@ -1,27 +1,63 @@
 load("diff.stlx");
 
 global.DEBUG := false;
-evalStr([
-	"x + 0",
-	"x * 0",
-	"x + 0 * b - 6 - 3",
-	"(x + 7) * 34",
-	"Diff(a, a)",
-	"Diff(Diff(x * x * y, x), y)",
-	"Diff(f / g / h, f)",
-	"Diff(x * x, x)",
-	"(x * (7 + 8 / x)) - Diff(7 * x * x * x, x)",
-	"Diff(Diff(Cos(Sin(x)), x), x)",
-	"-6 * x * (-3)",
-	"Diff(Sin(x) * x^2, x) * Cos(x)",
-	"a^(x^y*b)",
-	"a*b^x^y",
-	"-(-1)",
-	"-(-x)",
-	"3 * x + x",
-	"a * a + a * a",
-	"(a / b) / (c / d)",
-	"Cos(4Pi)",
-	"Cos(p) where p = c where c = 0",
-	"Diff(x^2, a) where x = 3a + c" // expects 18a + 6c
-]);
+test := procedure(file, inOutDelimiter := "-->") {
+	passedTestsCtr := 0;
+	warnings := [];
+	fails := [];
+	lines := readFile(file);
+	tests := [ x : x in [split(l, inOutDelimiter) : l in lines] | #x == 2 ];
+	i := 0;
+	for ([input, expected] in tests) {
+		expected := trim(expected);
+		i += 1;
+		try {
+			vt := global.varTable;
+			toks := tokenize(input);
+			expr := parse(toks, vt);
+			res := eval(expr, {}, global.rules);
+			resStr := trim(stringify(res, true));
+
+			if (resStr == expected) {
+				passedTestsCtr += 1;
+				continue;
+			}
+
+			toks := tokenize(resStr);
+			expr := parse(toks, vt);
+
+			vt := global.varTable;
+			expectedToks := tokenize(expected);
+			expectedExpr := parse(expectedToks, vt);
+			expectedRes := eval(expectedExpr, {}, global.rules);
+
+			if (expectedToks == toks) {
+				warnings += ["Expected output of $i$. test has different String-representation:\n    Expected: $expected$\n    Received: $resStr$"];
+			} else if (expectedExpr == expr) {
+				warnings += ["Expected output of $i$. test has different Token-representation:\n    Expected: $expectedToks$\n    Received: $toks$"];
+			} else if (expectedRes == res) {
+				warnings += ["Expected output of $i$. test has different Expression-representation:\n    Expected: $expectedExpr$\n    Received: $expr$"];
+			} else {
+				fails += ["$i$. test failed.\n    Expected: $expected$\n    Received: $resStr$"];
+			}
+		} catch (e) {
+			fails += ["$i$. test failed with the following error: $e$"];
+		}
+	}
+
+	print("[INFO]: $passedTestsCtr$ tests passed");
+	if (warnings != []) {
+		print("[INFO]: $#warnings$ warnings.");
+		for (w in warnings) {
+			print("  [INFO]: $w$");
+		}
+	}
+	if (fails != []) {
+		printErr("[FAIL]: $#fails$ fails.");
+		for (f in fails) {
+			print("  [FAIL]: $f$");
+		}
+	}
+};
+
+test("./tests.txt");
