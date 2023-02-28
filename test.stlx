@@ -1,7 +1,49 @@
 load("diff.stlx");
 
-global.DEBUG := false;
-test := procedure(file, inOutDelimiter := "-->") {
+testSameExpr := procedure(x, y) {
+	if (fct(x) != fct(y)) {
+		return false;
+	}
+	match(x) {
+		case @Op(xop, xs):
+			[yop, ys] := args(y);
+			if (yop != xop || #xs != #ys) {
+				return false;
+			}
+			match(xop) {
+				regex '\+|\*':
+					for(xa in xs) {
+						i := findIndex(ys, ya |=> testSameExpr(xa, ya));
+						if (i < 0) {
+							return false;
+						} else {
+							ys := ys[..i-1] + ys[i+1..];
+						}
+					}
+					return true;
+				regex '-|/|^':
+					if (!testSameExpr(xs[1], ys[1])) {
+						return false;
+					}
+					[xs, ys] := [xs[2..], ys[2..]];
+					for(xa in xs) {
+						i := findIndex(ys, ya |=> testSameExpr(xa, ya));
+						if (i < 0) {
+							return false;
+						} else {
+							ys := ys[..i-1] + ys[i+1..];
+						}
+					}
+					return true;
+				default:
+					return xs == ys;
+			}
+		default:
+			return x == y;
+	}
+};
+
+test := procedure(file, debugOnException := true, inOutDelimiter := "-->") {
 	passedTestsCtr := 0;
 	warnings := [];
 	fails := [];
@@ -33,15 +75,27 @@ test := procedure(file, inOutDelimiter := "-->") {
 
 			if (expectedToks == toks) {
 				warnings += ["Expected output of $i$. test has different String-representation:\n    Expected: $expected$\n    Received: $resStr$"];
-			} else if (expectedExpr == expr) {
+			} else if (testSameExpr(expectedExpr, expr)) {
 				warnings += ["Expected output of $i$. test has different Token-representation:\n    Expected: $expectedToks$\n    Received: $toks$"];
-			} else if (expectedRes == res) {
+			} else if (testSameExpr(expectedRes, res)) {
 				warnings += ["Expected output of $i$. test has different Expression-representation:\n    Expected: $expectedExpr$\n    Received: $expr$"];
 			} else {
 				fails += ["$i$. test failed.\n    Expected: $expected$\n    Received: $resStr$"];
 			}
 		} catch (e) {
-			fails += ["$i$. test failed with the following error: $e$"];
+			if (debugOnException) {
+				global.DEBUG := true;
+				try {
+					toks := tokenize(input);
+					expr := parse(toks, vt);
+					res := eval(expr, {}, global.rules);
+					resStr := trim(stringify(res, true));
+				} catch (e2) {}
+				global.DEBUG := false;
+				fails += ["$i$. test failed with the following error: $e$. See Debug-Output above"];
+			} else {
+				fails += ["$i$. test failed with the following error: $e$"];
+			}
 		}
 	}
 

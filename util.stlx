@@ -9,6 +9,15 @@ reverse := procedure(xs) {
 	}
 };
 
+findIndex := procedure(l, f) {
+	for (i in {1..#l}) {
+		if (f(l[i])) {
+			return i;
+		}
+	}
+	return -1;
+};
+
 reduceFromFirst := procedure(l, f, rev := false) {
 	assert(l != [], "reduceFromFirst expects a non-empty list as input");
 	if (rev) {
