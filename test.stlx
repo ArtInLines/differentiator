@@ -103,11 +103,11 @@ test := procedure(file, debugOnException := true, inOutDelimiter := "-->") {
 	if (warnings != []) {
 		print("[INFO]: $#warnings$ warnings.");
 		for (w in warnings) {
-			print("  [INFO]: $w$");
+			print("  [WARN]: $w$");
 		}
 	}
 	if (fails != []) {
-		printErr("[FAIL]: $#fails$ fails.");
+		printErr("[INFO]: $#fails$ fails.");
 		for (f in fails) {
 			print("  [FAIL]: $f$");
 		}
