@@ -11,7 +11,7 @@ Diff(Diff(Cos(Sin(x)), x), x) --> Sin(Sin(x)) * Sin(x) - Cos(Sin(x)) * Cos(x)^2
 -6 * x * (-3) --> 18x
 Diff(Sin(x) * x^2, x) * Cos(x) --> x^2 * Cos(x)^2 + 2x * Cos(x) * Sin(x)
 a^x^y * a^b --> a^(xy + b)
-a^x^y^z --> a^(xyz)
+((a^x)^y)^z --> a^(xyz)
 -(-1) --> 1
 -(-x) --> x
 3 * x + x --> 4x
