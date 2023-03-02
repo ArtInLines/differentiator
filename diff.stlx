@@ -13,14 +13,17 @@ class global() {
 
 
 eval := procedure(expr, rw memo, rules := global.rules) {
-	if (global.DEBUG) {
-		print("Evaluating $expr$...");
-	}
 	if (expr in domain(memo)) {
+		if (global.DEBUG) {
+			print("Already evaluated $expr$ - returning $memo[expr]$...");
+		}
 		return memo[expr];
 	}
 	if (!isTerm(expr)) {
 		abort("eval expects 'expr' to be a term, instead received: $expr$");
+	}
+	if (global.DEBUG) {
+		print("Evaluating $expr$...");
 	}
 
 	match(expr) {
