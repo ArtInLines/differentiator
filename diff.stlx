@@ -213,7 +213,8 @@ parseExpr := procedure(tokens, rw varTable, last := om, lastPrec := om, paranLev
 		if (global.DEBUG) {
 			print("last is om && first token is not op: $tokens[1]$");
 		}
-		return parseTerm(tokens, varTable, true, paranLevel);
+		term := parseTerms(tokens, varTable, paranLevel);
+		return parseExpr(tokens, varTable, term, om, 0);
 	}
 
 	expr := om;
@@ -223,7 +224,7 @@ parseExpr := procedure(tokens, rw varTable, last := om, lastPrec := om, paranLev
 	match(token) {
 		case @TokOp(op):
 			assert(tokens != [], "An operator must be followed by an expression");
-			next := parseTerm(tokens, varTable, false, paranLevel);
+			next := parseTerms(tokens, varTable, paranLevel);
 			currPrec := getOpPrec(op) + paranLevel * getMaxPrec();
 			if (global.DEBUG) {
 				print("next: $next$");
@@ -235,7 +236,10 @@ parseExpr := procedure(tokens, rw varTable, last := om, lastPrec := om, paranLev
 				expr := @UnaryOp(op, next);
 			} else if (fct(last) == "Op") {
 				[lastOp, params] := args(last);
-				assert(lastPrec != om, "Expects lastPrec to be a number, when last was an operation.");
+				if (lastPrec == om) {
+					// Only happens if the last thing was a list of terms (i.e. an immediate multiplication)
+					lastPrec := (paranLevel + 1) * getMaxPrec();
+				}
 				assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
 
 				if (op == lastOp && isOpAssoc(op)) {
@@ -252,16 +256,11 @@ parseExpr := procedure(tokens, rw varTable, last := om, lastPrec := om, paranLev
 			} else {
 				expr := @Op(op, [last, next]);
 			}
-		case t | fct(last) in ["Name", "Number"] && fct(token) in ["TokName", "TokNum"]:
-			curr := parseTerm([token], varTable, false, 0);
-			currPrec := getOpPrec("*") + paranLevel * getMaxPrec();
-			expr := @Op("*", [curr, last]);
 		default:
 			if (global.DEBUG) {
-				print("This place seems to be unreachable.");
 				stop("parseExpr - default case:");
 			}
-			expr := parseTerm([token] + tokens, varTable, false, paranLevel);
+			abort("Error at parseExpr($[token] + tokens$, $last$) - something went wrong, because this place should unreachable.");
 	}
 	if (global.DEBUG) {
 		print("Parsing done - Result: $expr$");
@@ -269,19 +268,37 @@ parseExpr := procedure(tokens, rw varTable, last := om, lastPrec := om, paranLev
 	return parseExpr(tokens, varTable, expr, currPrec, paranLevel);
 };
 
-parseTerm := procedure(rw tokens, rw varTable, rec := false, paranLevel := 0) {
+parseTerms := procedure(rw tokens, rw varTable, paranLevel := 0) {
+	if (global.DEBUG) {
+		print("Parsing repeated terms $tokens$...");
+	}
+	terms := [parseTerm(tokens, varTable, paranLevel)];
+	while(tokens != []) {
+		toksClone := tokens;
+		try {
+			next := parseTerm(tokens, varTable, paranLevel);
+			terms += [next];
+		} catch(e) {
+			tokens := toksClone;
+			break;
+		}
+	}
+	if (#terms > 1) {
+		return @Op("*", terms);
+	} else {
+		return terms[1];
+	}
+};
+
+parseTerm := procedure(rw tokens, rw varTable, paranLevel := 0) {
 	assert(tokens != [], "parseTerm expects a non-empty list as input");
 	if (global.DEBUG) {
-		print("Parsing term $tokens$ with rec: $rec$...");
+		print("Parsing term $tokens$...");
 	}
 	match(tokens[1]) {
 		case @TokNum(num):
 			tokens := tokens[2..];
-			if (rec) {
-				return parseExpr(tokens, varTable, @Number(num), om, paranLevel);
-			} else {
-				return @Number(num);
-			}
+			return @Number(num);
 		case @TokName(name):
 			res := @Name(name);
 			prec := om;
@@ -316,12 +333,7 @@ parseTerm := procedure(rw tokens, rw varTable, rec := false, paranLevel := 0) {
 					res := @Op("*", [res, innerExpr]);
 				}
 			}
-
-			if (rec) {
-				return parseExpr(tokens, varTable, res, prec, paranLevel);
-			} else {
-				return res;
-			}
+			return res;
 		case @TokParanOpen():
 			tokens := tokens[2..];
 			idx := idxOfClosedParan(tokens);
@@ -331,11 +343,7 @@ parseTerm := procedure(rw tokens, rw varTable, rec := false, paranLevel := 0) {
 				lastPrec := getOpPrec(args(expr)[1]) + getMaxPrec() * (paranLevel + 1);
 			}
 			tokens := tokens[idx+1..];
-			if (rec) {
-				return parseExpr(tokens, varTable, expr, lastPrec, paranLevel);
-			} else {
-				return expr;
-			}
+			return expr;
 		default: abort("Error at parseTerm($tokens$) - Unexpected token");
 	}
 };
