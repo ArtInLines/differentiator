@@ -241,7 +241,7 @@ makeDefaultRules := procedure() {
 			// a^(b^c) = a^(b*c)
 			[
 				params |-> fct(params[2]) == "Op" && args(params[2])[1] == "^",
-				params |-> @Op("^", [params[1], @Op("*", args(params[2])[2..])])
+				params |-> @Op("^", [params[1], @Op("*", args(params[2])[2])])
 			]
 		]],
 		["+", [
@@ -313,11 +313,11 @@ makeDefaultRules := procedure() {
 				}
 			}, procedure(sames) {
 				// whether "^" operation, name or number, the base is always given by the first argument
-				base := args(sames[1])[1];
+				base := args(sames[1])[2][1];
 				exps := [];
 				for (x in sames) {
 					if (fct(x) == "Op") {
-						l := args(x)[2..];
+						l := args(x)[2][2..];
 						if (#l == 1) {
 							exps += l;
 						} else {
