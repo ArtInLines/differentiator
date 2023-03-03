@@ -1,0 +1,116 @@
+load("util.stlx");
+load("rules.stlx");
+load("variables.stlx");
+
+
+// TODO: Add rules for evaluating before evaluating parameters (lazy vs eager eval?)
+// TODO: Add search graph to allow circular rules
+	// TODO: Return list of all evaluatable rules
+// TODO: Add maximum recursion depth to prevent infinite recursion
+// TODO: Add search heuristic instead of basically searching solutions via breadth-/depth-first search
+
+eval := procedure(expr, rw memo, varTable, rules := global.rules) {
+	if (expr in domain(memo)) {
+		if (global.DEBUG) {
+			print("Already evaluated $expr$ - returning $memo[expr]$...");
+		}
+		return memo[expr];
+	}
+	if (!isTerm(expr)) {
+		abort("eval expects 'expr' to be a term, instead received: $expr$");
+	}
+	if (global.DEBUG) {
+		print("Evaluating $expr$...");
+	}
+
+	match(expr) {
+		case @Number(n):
+			memo[expr] := expr;
+		case @Name(s):
+			memo[expr] := expr;
+		case @Func(f, params):
+			if (f in domain(rules)) {
+				if (global.DEBUG) {
+					print("func: $f$ - params: $params$");
+				}
+				params := [ eval(p, memo, varTable, rules) : p in params ];
+				for (r in rules[f]) {
+					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
+					t := r[1];
+					e := r[2];
+					if (t(params)) {
+						res := e(params, varTable);
+						if (global.DEBUG) {
+							print("Applied rule: $r$");
+							print("Result: $res$");
+						}
+						memo[expr] := eval(res, memo, varTable, rules);
+						break;
+					}
+				}
+				if (expr notin domain(memo)) {
+					memo[expr] := @Func(f, params);
+				}
+			} else {
+				abort("Error at eval($expr$) - Function not found in rules.");
+			}
+		case @Op(op, params):
+			if (op in domain(rules)) {
+				if (global.DEBUG) {
+					print("op: $op$ - params: $params$");
+				}
+				params := [ eval(p, memo, varTable, rules) : p in params ];
+				for (r in rules[op]) {
+					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
+					t := r[1];
+					e := r[2];
+					if (t(params)) {
+						res := e(params, varTable);
+						if (global.DEBUG) {
+							print("Applied rule: $r$");
+							print("Result: $res$");
+						}
+						memo[expr] := eval(res, memo, varTable, rules);
+						break;
+					}
+				}
+
+				if (expr notin domain(memo)) {
+					if (global.DEBUG) {
+						print("No applicable rule - returning $@Op(op, params)$");
+					}
+					memo[expr] := @Op(op, params);
+				}
+			} else {
+				abort("Error at eval($expr$) - Operation not found in rules.");
+			}
+		case @UnaryOp(op, param):
+			if (op in domain(rules)) {
+				if (global.DEBUG) {
+					print("unaryOp: $op$ - param: $param$");
+				}
+				params := [eval(param, memo, varTable, rules)];
+				for (r in rules[op]) {
+					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
+					t := r[1];
+					e := r[2];
+					if (t(params)) {
+						res := e(params, varTable);
+						if (global.DEBUG) {
+							print("Applied rule: $r$");
+							print("Result: $res$");
+						}
+						memo[expr] := eval(res, memo, varTable, rules);
+						break;
+					}
+				}
+				if (expr notin domain(memo)) {
+					memo[expr] := @UnaryOp(op, params);
+				}
+			} else {
+				abort("Error at eval($expr$) - Unary Operation not found in rules.");
+			}
+		default: abort("Error at eval($expr$) - Unknown Expression.");
+	}
+	return memo[expr];
+};
