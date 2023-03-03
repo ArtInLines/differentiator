@@ -154,39 +154,53 @@ invSomeNumRule := procedure(op, invOp, reduceOp, invOfNum) {
 	testExpr := p |=> fct(p) == "Number" || (fct(p) == "Op" && args(p)[1] in {op, invOp} && exists (x in args(p)[2] | testExpr(x)));
 	test := params |=> testExpr(params[1]) && testExpr(params[2]);
 
+	splitOpExpr := closure(op, a, b, c, d) {
+		if (a != @Null() && b == @Null()) {
+			if (c != @Null()) {
+				return [reduceOp(a, c), d];
+			} else {
+				return [a, d];
+			}
+		} else if (a == @Null() && b != @Null()) {
+			if (d == @Null()) {
+				return [invOfNum(c), b];
+			} else {
+				return [invOfNum(c), @Op(op, [b, d])];
+			}
+		} else if (a != @Null() && b != @Null()) {
+			if (c == @Null() && d != @Null()) {
+				return [a, @Op(op, [b, d])];
+			} else if (c != @Null() && d == @Null()) {
+				return [reduceOp(a, c), b];
+			} else if (c != @Null() && d != @Null()) {
+				return [reduceOp(a, c), @Op(op, [b, d])];
+			} else {
+				assert(false, "Unreachable. For debugging: a=$a$, b=$b$, c=$c$, d=$d$");
+			}
+		} else {
+			assert(false, "Unreachable. For debugging: a=$a$, b=$b$, c=$c$, d=$d$");
+		}
+	};
+
 	splitExpr := closure(p, op, invOp) {
 		match(p) {
 			case @Number(n):
 				return [n, @Null()];
-			case @Op(op, xs):
-				assert(#xs == 2, "This rule assumes that the operation $op$ requires exactly 2 operands");
+			case @Op(o, xs) | o == op:
+				[a, b, c, d] := [@Null(), @Null(), @Null(), @Null()];
+				assert(#xs >= 2, "splitExpr expects $op$ to have at least 2 arguments");
 				[[a, b], [c, d]] := [splitExpr(xs[1], op, invOp), splitExpr(xs[2], invOp, op)];
-				if (a != @Null() && b == @Null()) {
-					if (c != @Null()) {
-						return [reduceOp(a, c), d];
+
+				if (#xs > 2) {
+					[a, b] := splitOpExpr(op, a, b, c, d);
+					if (#xs[3..] == 1) {
+						[c, d] := splitExpr(xs[3], op, invOp);
 					} else {
-						return [a, d];
+						[c, d] := splitExpr(@Op(op, xs[3..]), op, invOp);
 					}
-				} else if (a == @Null() && b != @Null()) {
-					if (d == @Null()) {
-						return [invOfNum(c), b];
-					} else {
-						return [invOfNum(c), @Op(op, [b, d])];
-					}
-				} else if (a != @Null() && b != @Null()) {
-					if (c == @Null() && d != @Null()) {
-						return [a, @Op(op, [b, d])];
-					} else if (c != @Null() && d == @Null()) {
-						return [reduceOp(a, c), b];
-					} else if (c != @Null() && d != @Null()) {
-						return [reduceOp(a, c), @Op(op, [b, d])];
-					} else {
-						assert(false, "Unreachable. For debugging: a=$a$, b=$b$, c=$c$, d=$d$");
-					}
-				} else {
-					assert(false, "Unreachable. For debugging: a=$a$, b=$b$, c=$c$, d=$d$");
 				}
-			case @Op(invOp, xs):
+				return splitOpExpr(op, a, b, c, d);
+			case @Op(o, xs) | o == invOp:
 				return splitExpr(@Op(op, xs), invOp, op);
 			default:
 				return [@Null(), p];
