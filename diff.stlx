@@ -238,7 +238,7 @@ parseExpr := procedure(tokens, rw varTable, last := om, lastPrec := om, paranLev
 				[lastOp, params] := args(last);
 				if (lastPrec == om) {
 					// Only happens if the last thing was a list of terms (i.e. an immediate multiplication)
-					lastPrec := (paranLevel + 1) * getMaxPrec();
+					lastPrec := getOpPrec("*") + paranLevel * getMaxPrec();
 				}
 				assert(#params >= 2, "There must be at least 2 parameters for a prefix operator. The operator $lastOp$ only received the parameters $params$");
 
@@ -290,6 +290,7 @@ parseTerms := procedure(rw tokens, rw varTable, paranLevel := 0) {
 	}
 };
 
+// TODO: Return precedence of operation (when variable is substituted)
 parseTerm := procedure(rw tokens, rw varTable, paranLevel := 0) {
 	assert(tokens != [], "parseTerm expects a non-empty list as input");
 	if (global.DEBUG) {
