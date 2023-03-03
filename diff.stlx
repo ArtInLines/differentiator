@@ -13,7 +13,7 @@ class global() {
 }
 
 
-eval := procedure(expr, rw memo, rules := global.rules) {
+eval := procedure(expr, rw memo, varTable, rules := global.rules) {
 	if (expr in domain(memo)) {
 		if (global.DEBUG) {
 			print("Already evaluated $expr$ - returning $memo[expr]$...");
