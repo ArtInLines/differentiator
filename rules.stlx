@@ -1,4 +1,5 @@
 load("util.stlx");
+load("variables.stlx");
 
 
 addOpRule := procedure(rw rules, op, test, eval) {
@@ -594,14 +595,4 @@ makeDefaultRules := procedure() {
 			]
 		]]
 	]);
-};
-
-// Assumes that there cannot be any variables named "unused" or "funcs"
-makeDefaultVarTable := procedure() {
-	varTable := {};
-	varTable["unused"] := [];
-	varTable["funcs"] := ["Sin", "Cos", "Diff"];
-	varTable["Pi"] := @Number(mathConst("pi"));
-	varTable["e"] := @Number(mathConst("e"));
-	return varTable;
 };

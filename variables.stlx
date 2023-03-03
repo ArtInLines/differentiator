@@ -1,0 +1,24 @@
+// Assumes that there cannot be any variables named "unused" or "funcs"
+makeDefaultVarTable := procedure() {
+	varTable := {};
+	varTable["unused"] := [];
+	varTable["funcs"] := ["Sin", "Cos", "Diff", "Int"];
+	varTable["Pi"] := @Number(mathConst("pi"));
+	varTable["e"] := @Number(mathConst("e"));
+	return varTable;
+};
+
+getUnusedVarName := procedure(rw varTable, initialVarName := "c", def := om) {
+	num := 1;
+	var := initialVarName;
+	while (var in domain(varTable) || var in varTable["unused"] || var in varTable["funcs"]) {
+		var := "$toUpperCase(initialVarName[1])$$initialVarName[2..]$$num$";
+		num += 1;
+	}
+	if (def == om) {
+		varTable["unused"] += [var];
+	} else {
+		varTable[var] := def;
+	}
+	return var;
+};

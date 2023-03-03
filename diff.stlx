@@ -1,6 +1,7 @@
 load("util.stlx");
 load("rules.stlx");
 load("ops.stlx");
+load("variables.stlx");
 
 
 class global() {
