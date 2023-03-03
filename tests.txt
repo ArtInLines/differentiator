@@ -20,3 +20,12 @@ a * a + a * a --> 2 * a^2
 Cos(4Pi) --> 1.0
 Cos(p) where p = c where c = 0 --> 1.0
 Diff(x^2, a) where x = 3a + c --> 18a + 6c
+Int(3, x) --> 3x + c
+Int(Diff(a, x), x) --> a
+Diff(Int(a, x), x) --> a
+Int(3 + 7, x) --> 10x + c
+Int(3 + c, x) --> 3x + cx + C1 + C2
+Int(Sin(3), x) --> Sin(3) * x + c
+Int(Sin(3x), x) --> (-Cos(3x)) / 3 + c
+Int(Sin(5x^2 + 2), x) --> Sin(5x^2 + 2)^4 / 10x + c
+Int(Sin(5x^2 + 2)^3, x) --> Sin(5x^2 + 2)^4 / 40x + c

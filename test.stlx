@@ -57,7 +57,7 @@ test := procedure(file, debugOnException := true, inOutDelimiter := "-->") {
 			vt := global.varTable;
 			toks := tokenize(input);
 			expr := parse(toks, vt);
-			res := eval(expr, {}, global.rules);
+			res := eval(expr, {}, vt, global.rules);
 			resStr := trim(stringify(res, true));
 
 			if (resStr == expected) {
@@ -71,7 +71,7 @@ test := procedure(file, debugOnException := true, inOutDelimiter := "-->") {
 			vt := global.varTable;
 			expectedToks := tokenize(expected);
 			expectedExpr := parse(expectedToks, vt);
-			expectedRes := eval(expectedExpr, {}, global.rules);
+			expectedRes := eval(expectedExpr, {}, vt, global.rules);
 
 			if (expectedToks == toks) {
 				warnings += ["Expected output of $i$. test has different String-representation:\n    Input: $input$\n    Expected: $expected$\n    Received: $resStr$"];
@@ -88,7 +88,7 @@ test := procedure(file, debugOnException := true, inOutDelimiter := "-->") {
 				try {
 					toks := tokenize(input);
 					expr := parse(toks, vt);
-					res := eval(expr, {}, global.rules);
+					res := eval(expr, {}, vt, global.rules);
 					resStr := trim(stringify(res, true));
 				} catch (e2) {}
 				global.DEBUG := false;

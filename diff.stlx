@@ -36,18 +36,18 @@ eval := procedure(expr, rw memo, rules := global.rules) {
 				if (global.DEBUG) {
 					print("func: $f$ - params: $params$");
 				}
-				params := [ eval(p, memo, rules) : p in params ];
+				params := [ eval(p, memo, varTable, rules) : p in params ];
 				for (r in rules[f]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];
 					e := r[2];
 					if (t(params)) {
-						res := e(params);
+						res := e(params, varTable);
 						if (global.DEBUG) {
 							print("Applied rule: $r$");
 							print("Result: $res$");
 						}
-						memo[expr] := eval(res, memo, rules);
+						memo[expr] := eval(res, memo, varTable, rules);
 						break;
 					}
 				}
@@ -62,18 +62,18 @@ eval := procedure(expr, rw memo, rules := global.rules) {
 				if (global.DEBUG) {
 					print("op: $op$ - params: $params$");
 				}
-				params := [ eval(p, memo, rules) : p in params ];
+				params := [ eval(p, memo, varTable, rules) : p in params ];
 				for (r in rules[op]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];
 					e := r[2];
 					if (t(params)) {
-						res := e(params);
+						res := e(params, varTable);
 						if (global.DEBUG) {
 							print("Applied rule: $r$");
 							print("Result: $res$");
 						}
-						memo[expr] := eval(res, memo, rules);
+						memo[expr] := eval(res, memo, varTable, rules);
 						break;
 					}
 				}
@@ -92,18 +92,18 @@ eval := procedure(expr, rw memo, rules := global.rules) {
 				if (global.DEBUG) {
 					print("unaryOp: $op$ - param: $param$");
 				}
-				params := [eval(param, memo, rules)];
+				params := [eval(param, memo, varTable, rules)];
 				for (r in rules[op]) {
 					assert(#r == 2, "Each rule is expected to have exactly 2 elements");
 					t := r[1];
 					e := r[2];
 					if (t(params)) {
-						res := e(params);
+						res := e(params, varTable);
 						if (global.DEBUG) {
 							print("Applied rule: $r$");
 							print("Result: $res$");
 						}
-						memo[expr] := eval(res, memo, rules);
+						memo[expr] := eval(res, memo, varTable, rules);
 						break;
 					}
 				}
@@ -443,7 +443,7 @@ evalStr := procedure(strs, pretty := true, includeBefore := true, toPrint := tru
 		tokens := tokenize(s);
 		vt := varTable;
 		expr := parse(tokens, vt);
-		res := eval(expr, {}, rules);
+		res := eval(expr, {}, vt, rules);
 		outStr := stringify(res, pretty);
 
 		if (includeBefore) {
