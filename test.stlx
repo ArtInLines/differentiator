@@ -74,13 +74,13 @@ test := procedure(file, debugOnException := true, inOutDelimiter := "-->") {
 			expectedRes := eval(expectedExpr, {}, vt, global.rules);
 
 			if (expectedToks == toks) {
-				warnings += ["Expected output of $i$. test has different String-representation:\n    Input:     $input$\n    Expected: $expected$\n    Received: $resStr$"];
+				warnings += ["Expected output of $i$. test has different String-representation:\n    Input:    $input$\n    Expected: $expected$\n    Received: $resStr$"];
 			} else if (testSameExpr(expectedExpr, expr)) {
-				warnings += ["Expected output of $i$. test has different Token-representation:\n    Input:     $input$\n    Expected: $expectedToks$\n    Received: $toks$"];
+				warnings += ["Expected output of $i$. test has different Token-representation:\n    Input:    $input$\n    Expected: $expectedToks$\n    Received: $toks$"];
 			} else if (testSameExpr(expectedRes, res)) {
-				warnings += ["Expected output of $i$. test has different Expression-representation:\n    Input:     $input$\n    Expected: $expectedExpr$\n    Received: $expr$"];
+				warnings += ["Expected output of $i$. test has different Expression-representation:\n    Input:    $input$\n    Expected: $expectedExpr$\n    Received: $expr$"];
 			} else {
-				fails += ["$i$. test failed.\n    Input:     $input$\n    Expected: $expected$\n    Received: $resStr$"];
+				fails += ["$i$. test failed.\n    Input:    $input$\n    Expected: $expected$\n    Received: $resStr$"];
 			}
 		} catch (e) {
 			if (debugOnException) {
