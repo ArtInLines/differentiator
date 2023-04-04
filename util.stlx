@@ -3,10 +3,32 @@ identity := procedure(x) {
 };
 
 reverse := procedure(xs) {
-	match(xs) {
-		case []: return [];
-		case [x|r]: return reverse(r) + [x];
+	res := [];
+	for(x in xs) {
+		res := [x] + res;
 	}
+	return res;
+};
+
+// f receives the element x and its index i as input
+// f returns the mapped value for x
+// if f returns `om`, the value will be filtered out
+filterMap := procedure(xs, f) {
+	res := [];
+	for (i in {1..#xs}) {
+		x := f(xs[i], i);
+		res += [x];
+	}
+	return res;
+};
+
+find := procedure(l, f, alternative := om) {
+	for (x in l) {
+		if (f(x)) {
+			return x;
+		}
+	}
+	return alternative;
 };
 
 findIndex := procedure(l, f) {

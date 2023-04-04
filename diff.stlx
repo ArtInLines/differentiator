@@ -1,11 +1,12 @@
 load("evaluator.stlx");
 load("parser.stlx");
+load("variables.stlx");
 
 
 class global() {
 	static {
 		rules := makeDefaultRules();
-		varTable := makeDefaultVarTable();
+		varTable := variableHandler.def();
 		DEBUG := false;
 	}
 }
@@ -24,7 +25,7 @@ evalStr := procedure(strs, pretty := true, includeBefore := true, toPrint := tru
 		// global.DEBUG := true;
 		// global.DEBUG := false;
 		tokens := tokenize(s);
-		vt := varTable;
+		vt := varTable.clone();
 		expr := parse(tokens, vt);
 		res := eval(expr, {}, vt, rules);
 		outStr := stringify(res, pretty);

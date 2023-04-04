@@ -114,4 +114,6 @@ test := procedure(file, debugOnException := true, inOutDelimiter := "-->") {
 	}
 };
 
+// global.DEBUG := true;
 test("./tests.txt");
+// evalStr("Int(Sin(5x^2 + 2)^3, x)");

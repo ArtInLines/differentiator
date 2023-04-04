@@ -1,24 +1,109 @@
-// Assumes that there cannot be any variables named "unused" or "funcs"
-makeDefaultVarTable := procedure() {
-	varTable := {};
-	varTable["unused"] := [];
-	varTable["funcs"] := ["Sin", "Cos", "Diff", "Int"];
-	varTable["Pi"] := @Number(mathConst("pi"));
-	varTable["e"] := @Number(mathConst("e"));
-	return varTable;
-};
+load("util.stlx");
 
-getUnusedVarName := procedure(rw varTable, initialVarName := "c", def := om) {
-	num := 1;
-	var := initialVarName;
-	while (var in domain(varTable) || var in varTable["unused"] || var in varTable["funcs"]) {
-		var := "$toUpperCase(initialVarName[1])$$initialVarName[2..]$$num$";
-		num += 1;
+
+class variableHandler(variableMap := {}, funcNames := [], errOnRedefinition := true) {
+	errOnRedefinition := errOnRedefinition;
+	definedVars := variableMap;
+	funcs := funcNames;
+	undefinedVars := [];
+	categorizedVars := []; // categorizedVars are also undefined variables, but behind a specific category
+	isDefinedVar := procedure(name) {
+		return name in domain(this.definedVars);
+	};
+	isUndefinedVar := procedure(name) {
+		return name in this.undefinedVars;
+	};
+	isCategory := procedure(name) {
+		for(c in this.categorizedVars) {
+			if (c[1] == name) {
+				return true;
+			}
+		}
+		return false;
+	};
+	isCategorizedVar := procedure(name) {
+		for(c in this.categorizedVars) {
+			if (name in c[2]) {
+				return true;
+			}
+		}
+		return false;
+	};
+	addVar := procedure(name, definition := om) {
+		if (definition == om) {
+			this.undefinedVars += [name];
+		} else {
+			if (this.errOnRedefinition && name in domain(this.definedVars)) {
+				abort("Error at addVar($name$, $definition$) - variable $name$ is already defined as $this.definedVars[name]$. Redefinitions are not allowed.");
+			}
+			this.definedVars[name] := definition;
+		}
+	};
+	getDefinedVar := procedure(name) {
+		return this.definedVars[name];
+	};
+	getUndefinedVar := procedure(name) {
+		return find(this.undefinedVars, x |=> x == name, om);
+	};
+	rmDefVars := procedure(names) {
+		this.definedVars := {v : v in this.definedVars | v[1] notin name};
+	};
+	rmUndefVars := procedure(names) {
+		this.undefinedVars := [v : v in this.undefinedVars | v notin names];
+	};
+	rmCategories := procedure(categories) {
+		this.categorizedVars := [c : c in this.categorizedVars | c[1] notin categories];
+	};
+	rmCategoryVar := procedure(category, var) {
+		this.categorizedVars := filterMap(this.categorizedVars, procedure(c, i) {
+			c := [c[1], [x : x in c[2] | x != var]];
+			if (c[2] == []) {
+				return om;
+			} else {
+				return c;
+			}
+		});
+	};
+	addCategory := procedure(category, vars := []) {
+		// TODO: Check for Redefinitions
+		this.categorizedVars += [[category, vars]];
+	};
+	addCategoryVars := procedure(category, vars) {
+		// TODO: Check for Redefinitions
+		for(i in {1..#this.categorizedVars}) {
+			if (this.categorizedVars[i][1] == category) {
+				this.categorizedVars[i][2] += vars;
+			}
+		}
+
+		// Should only reach here if the category didn't already exist
+		// Currently simply adds the category instead of throwing an error for example
+		// Is that desired?
+		this.addCategory(category, vars);
+	};
+	makeNewCategorizedVar := procedure(category, initialVarName := "c") {
+		name := this.getUnusedVarName(initialVarName);
+		this.addCategoryVars(category, [name]);
+	};
+	getUnusedVarName := procedure(initialVarName := "c") {
+		num := 1;
+		var := initialVarName;
+		while(this.isDefinedVar(var) || this.isUndefinedVar(var) || this.isCategorizedVar(var)) {
+			var := "$toUpperCase(initialVarName[1])$$initialVarName[2..]$$num$";
+			num += 1;
+		}
+		return var;
+	};
+	clone := procedure() {
+		cl := variableHandler(this.definedVars, this.funcs, this.errOnRedefinition);
+		cl.undefinedVars := undefinedVars;
+		cl.categorizedVars := categorizedVars;
+		return cl;
+	};
+
+	static {
+		def := procedure() {
+			return variableHandler({["Pi", mathConst("pi")], ["e", mathConst("e")]}, ["Sin", "Cos", "Int", "Diff"], true);
+		};
 	}
-	if (def == om) {
-		varTable["unused"] += [var];
-	} else {
-		varTable[var] := def;
-	}
-	return var;
-};
+}
